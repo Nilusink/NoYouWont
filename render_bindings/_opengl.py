@@ -33,13 +33,12 @@ from ._cvectors import Vec2, normalize_angle
 from ._ccolor import Color
 from ._utility_functions import convert_coord
 
+
 def ic(*args, **kwargs):
     print(*args, **kwargs)
 
+
 # define types
-type TextureID = int
-
-
 class OpenGLRenderer(BaseRenderer):
     def check_out_of_screen(self, *_, **__):
         pass
@@ -87,13 +86,14 @@ class OpenGLRenderer(BaseRenderer):
         # get screen size
         # screen_info = pg.display.Info()
         window_size = 2*(radius*2,)  # (screen_info.current_w, screen_info.current_h)  # TODO: sizing
+        actual_size = 2*(radius*2,)
         # window_size = 1920, 1080
 
         # set global screen size and ppm
 
         pg.display.gl_set_attribute(pg.GL_STENCIL_SIZE, 8)
         pg.display.set_mode(
-            window_size,
+            actual_size,
             DOUBLEBUF | OPENGL
         )
         # self.font = pg.font.SysFont(None, 24)
@@ -108,6 +108,8 @@ class OpenGLRenderer(BaseRenderer):
 
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        self.window_size = actual_size
 
     @staticmethod
     def set_color(color: Color | tColor) -> Color:

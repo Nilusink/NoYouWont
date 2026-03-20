@@ -23,6 +23,8 @@ type coord_t = tuple[float, float]
 
 
 class BaseRenderer:
+    window_size: tuple[int, int]
+
     def init(self, title: str, radius: int) -> None:
         """
         initialize the renderer and global_vars

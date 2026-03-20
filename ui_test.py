@@ -19,6 +19,15 @@ class RadarWarning:
     vmax: int
 
 
+@dataclass(frozen=True)
+class StreetSegment:
+    a: Vec2
+    b: Vec2
+    dist: float
+    priority: int
+    vmax: int
+
+
 def get_osm_data() -> list:
     data = json.load(open("buffer.json", "r"))
     return data["elements"]
@@ -42,7 +51,7 @@ def draw_roads_pointer(roads, color: Color):
     glDisableClientState(GL_VERTEX_ARRAY)
 
 
-lat, lon = 47.2692, 11.4041
+lat, lon = 47.2612, 11.3341
 RADIUS = 3000  # 5 km
 screen_radius = 120
 dot_size = 3
@@ -128,10 +137,8 @@ ROAD_TYPES: dict[str, int] = {
 
 def get_roads(
         street_data
-) -> list[tuple[Vec2, Vec2, float, int]]:
+) -> list[StreetSegment]:
     roads = []
-
-    center = Vec2().from_cartesian(screen_radius, screen_radius)
 
     for street in street_data:
         nodes = []
@@ -150,23 +157,38 @@ def get_roads(
             n1 = nodes[i]
             n2 = nodes[i+1]
 
-            hw = street["tags"]["highway"]
+            tags = street["tags"]
+            hw = tags["highway"]
             if hw in ROAD_TYPES:
                 priority = ROAD_TYPES[hw]
 
             else:
                 priority = 300
+
+            if "maxspeed" in tags:
+                vmax = int(tags["maxspeed"])
                 # print(hw, street["tags"])
 
-            roads.append((
-                n1,
-                n2,
-                max([
-                    n1.length,
-                    n2.length
-                ]),
-                priority
+            else:
+                vmax = -1
+
+            roads.append(StreetSegment(
+                a=n1,
+                b=n2,
+                dist=max([n1.length, n2.length]),
+                priority=priority,
+                vmax=vmax
             ))
+
+            # roads.append((
+            #     n1,
+            #     n2,
+            #     max([
+            #         n1.length,
+            #         n2.length
+            #     ]),
+            #     priority
+            # ))
 
     return roads
 
@@ -196,6 +218,14 @@ def get_cams(cam_data) -> list[RadarWarning]:
     return radars
 
 
+def get_detail(radius: float) -> float:
+    return 20 * ((500/radius) ** 1.285)
+
+
+def get_radius(speed: float) -> float:
+    return 100 + 3200 / (1 + (100 / speed) ** 2.5)
+
+
 def main():
     global RADIUS
     pg.init()
@@ -207,20 +237,36 @@ def main():
     roads = get_roads(street_data)
     cams = get_cams(cam_data)
 
-    cc = Vec2().from_cartesian(screen_radius, screen_radius)
+    cc = Vec2().from_cartesian(
+        renderer.window_size[0]/2,
+        renderer.window_size[1]/2
+    )
+    speed = 1
+
     while True:
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return
 
             elif event.type == pg.MOUSEWHEEL:
-                RADIUS *= 1 + event.y / 10
+                # RADIUS *= 1 + event.y / 10
+                speed = max([
+                    1,
+                    speed + event.y * 10
+                ])
+                print(speed)
+                # print(
+                #     speed,
+                #     get_radius(speed),
+                #     get_detail(get_radius(speed)),
+                # )
 
         mouse_pos = Vec2().from_cartesian(*pg.mouse.get_pos())
         delta = cc - mouse_pos
 
         # radius = 500 + RADIUS/2 + RADIUS/2 * m.sin(time.time() / 5)
-        radius = RADIUS
+        radius = get_radius(speed)
+        # radius = RADIUS
         # rot = ((time.time() / 3) % m.pi * 2)
         rot = -m.pi / 2 - delta.angle
 
@@ -228,7 +274,15 @@ def main():
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         # detail_level = (2 - (radius / 3000))
-        detail_level = abs(max(0, min(12, 12-m.log(radius / 625, 2))))
+        # detail_level = abs(max(0, min(12, 12-m.log(radius / 625, 2))))
+        detail_level = get_detail(radius)
+        # 3000 -> 250kmh
+        # 2000 -> 200kmh
+        # 1600 -> 140
+        # 1270 -> 80
+        # 500 -> 50
+        # 200 -> 15
+        # 100 -> 0
 
         # draw
         ## create display
@@ -243,31 +297,45 @@ def main():
 
         ## on display
         to_draw = []
+        to_shadow = []
         for line in roads:
-            if line[3] > detail_level:
+            if line.dist > radius:
                 continue
 
-            if line[2] <= radius:
-                tmp1 = line[0].copy()
-                tmp2 = line[1].copy()
+            tmp1 = line.a.copy()
+            tmp2 = line.b.copy()
 
-                tmp1.angle += rot
-                tmp2.angle += rot
+            tmp1.angle += rot
+            tmp2.angle += rot
 
-                to_draw.append((
-                    meters_to_pixels(
-                        *tmp1.xy,
-                        radius,
-                        screen_radius * 2
-                    ),
-                    meters_to_pixels(
-                        *tmp2.xy,
-                        radius,
-                        screen_radius * 2
-                    )
-                ))
+            p1 = meters_to_pixels(
+                *tmp1.xy,
+                radius,
+                screen_radius * 2
+            )
+
+            p2 = meters_to_pixels(
+                *tmp2.xy,
+                radius,
+                screen_radius * 2
+            )
+
+            if line.vmax > 0:
+                if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
+                    to_draw.append((p1, p2))
+
+                else:
+                    to_shadow.append((p1, p2))
+
+            else:
+                if line.priority <= detail_level:
+                    to_draw.append((p1, p2))
+
+                else:
+                    to_shadow.append((p1, p2))
 
         draw_roads_pointer(to_draw, Color().from_1(.8, .8, .8))
+        draw_roads_pointer(to_shadow, Color().from_1(.3, .3, .3))
 
         for cam in cams:
             pos = cam.pos.copy()
