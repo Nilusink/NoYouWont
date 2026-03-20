@@ -1,3 +1,6 @@
 .idea/
 .venv/
 .venv2/
+build/
+*.c
+*.json

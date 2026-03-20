@@ -23,7 +23,6 @@ class RadarWarning:
 class StreetSegment:
     a: Vec2
     b: Vec2
-    dist: float
     priority: int
     vmax: int
 
@@ -65,10 +64,10 @@ def latlon_to_meters(lat1, lon1, lat2, lon2):
     return dx, dy
 
 
-def meters_to_pixels(dx, dy, radius, screen_size):
+def meters_to_pixels(dx, dy, cx, cy, radius, screen_size):
     scale = screen_size / (2 * radius)  # pixels per meter
-    px = screen_size / 2 + dx * scale   # center at middle
-    py = screen_size / 2 - dy * scale   # invert y to have north up
+    px = screen_size / 2 + (dx + cx) * scale   # center at middle
+    py = screen_size / 2 - (dy + cy) * scale   # invert y to have north up
     return px, py
 
 
@@ -175,20 +174,9 @@ def get_roads(
             roads.append(StreetSegment(
                 a=n1,
                 b=n2,
-                dist=max([n1.length, n2.length]),
                 priority=priority,
                 vmax=vmax
             ))
-
-            # roads.append((
-            #     n1,
-            #     n2,
-            #     max([
-            #         n1.length,
-            #         n2.length
-            #     ]),
-            #     priority
-            # ))
 
     return roads
 
@@ -226,6 +214,37 @@ def get_radius(speed: float) -> float:
     return 100 + 3200 / (1 + (100 / speed) ** 2.5)
 
 
+def offset_center(lat, lon, rotation, radius) -> tuple[float, float]:
+    """
+        Offset a lat/lon by `radius` meters in direction `rotation` (degrees).
+
+        lat, lon: degrees
+        rotation: degrees (0 = north, 90 = east)
+        radius: meters
+        """
+    R = 6371000  # Earth radius (m)
+
+    lat1 = m.radians(lat)
+    lon1 = m.radians(lon)
+
+    # Convert your rotation → geographic bearing
+    bearing = (m.pi / 2) - rotation
+
+    d = radius / R
+
+    lat2 = m.asin(
+        m.sin(lat1) * m.cos(d) +
+        m.cos(lat1) * m.sin(d) * m.cos(bearing)
+    )
+
+    lon2 = lon1 + m.atan2(
+        m.sin(bearing) * m.sin(d) * m.cos(lat1),
+        m.cos(d) - m.sin(lat1) * m.sin(lat2)
+    )
+
+    return m.degrees(lat2), m.degrees(lon2)
+
+
 def main():
     global RADIUS
     pg.init()
@@ -243,6 +262,7 @@ def main():
     )
     speed = 1
 
+    ocenter = Vec2()
     while True:
         for event in pg.event.get():
             if event.type == pg.QUIT:
@@ -270,19 +290,19 @@ def main():
         # rot = ((time.time() / 3) % m.pi * 2)
         rot = -m.pi / 2 - delta.angle
 
+        latc, lonc = latlon_to_meters(
+            *offset_center(lat, lon, m.pi/2, radius/2.5),
+            lat, lon
+        )
+        ocenter.x = latc
+        ocenter.y = lonc
+        ocenter.angle = -rot + m.pi/2
+
         glClearColor(0.0, 0.0, 0.3, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # detail_level = (2 - (radius / 3000))
-        # detail_level = abs(max(0, min(12, 12-m.log(radius / 625, 2))))
+
         detail_level = get_detail(radius)
-        # 3000 -> 250kmh
-        # 2000 -> 200kmh
-        # 1600 -> 140
-        # 1270 -> 80
-        # 500 -> 50
-        # 200 -> 15
-        # 100 -> 0
 
         # draw
         ## create display
@@ -299,8 +319,13 @@ def main():
         to_draw = []
         to_shadow = []
         to_warn = []
+        special = []
         for line in roads:
-            if line.dist > radius:
+            dist = min([
+                (line.a - ocenter).length,
+                (line.b - ocenter).length
+            ])
+            if dist > radius:
                 continue
 
             tmp1 = line.a.copy()
@@ -311,12 +336,16 @@ def main():
 
             p1 = meters_to_pixels(
                 *tmp1.xy,
+                latc,
+                lonc,
                 radius,
                 screen_radius * 2
             )
 
             p2 = meters_to_pixels(
                 *tmp2.xy,
+                latc,
+                lonc,
                 radius,
                 screen_radius * 2
             )
@@ -326,8 +355,12 @@ def main():
                 if line.vmax * 1.1 + 30 >= speed:
                     to_draw.append((p1, p2))
 
-                elif line.vmax * 1.1 + 50 < speed:
-                    to_warn.append((p1, p2))
+                elif line.vmax * 1.03 + 50 < speed:
+                    if line.priority == 0:
+                        special.append((p1, p2))
+
+                    else:
+                        to_warn.append((p1, p2))
 
                 else:
                     if line.priority == 0:
@@ -344,13 +377,14 @@ def main():
                     to_shadow.append((p1, p2))
 
         draw_roads_pointer(to_draw, Color().from_1(.8, .8, .8))
+        draw_roads_pointer(special, Color().from_1(1, .6, .6))
         draw_roads_pointer(to_shadow, Color().from_1(.3, .3, .3))
         draw_roads_pointer(to_warn, Color().from_1(.5, .1, .1))
 
         for cam in cams:
             pos = cam.pos.copy()
             pos.angle += rot
-            pos = meters_to_pixels(pos.x, pos.y, radius, screen_radius * 2)
+            pos = meters_to_pixels(pos.x, pos.y, latc, lonc, radius, screen_radius * 2)
 
             if "count_cluster" in cam.info:
                 renderer.draw_circle(
@@ -380,8 +414,9 @@ def main():
                 print(cam.type)
 
         # draw "car"
+        cen = latlon_to_meters(lat, lon, lat, lon)
         renderer.draw_circle(
-            latlon_to_pixel(lat, lon, lat, lon, radius, screen_radius*2),
+            meters_to_pixels(*cen, latc, lonc, radius, screen_radius*2),
             3,
             8,
             Color().from_1(0, 1, 1)
