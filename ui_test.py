@@ -264,6 +264,7 @@ def main():
 
     ocenter = Vec2()
     while True:
+        t = time.time()
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 return
@@ -352,7 +353,7 @@ def main():
 
             if line.vmax > 0:
                 # if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
-                if line.vmax * 1.1 + 30 >= speed:
+                if line.vmax * 1.03 + 20 >= speed:
                     to_draw.append((p1, p2))
 
                 elif line.vmax * 1.03 + 50 < speed:
@@ -391,7 +392,7 @@ def main():
                     pos,
                     6,
                     8,
-                    Color().from_1(1, 1, 1)
+                    Color().from_1(1, 1, 1, (2*t % 1 > .5))
                 )
 
             elif cam.type <= 10:
@@ -399,7 +400,7 @@ def main():
                     pos,
                     dot_size,
                     8,
-                    Color().from_1(1, 0, 0)
+                    Color().from_1(1, 0, 0, (3*t % 1 > .5))
                 )
 
             elif cam.type >= 100:
@@ -407,7 +408,7 @@ def main():
                     pos,
                     dot_size,
                     8,
-                    Color().from_1(1, .5, 0)
+                    Color().from_1(1, .5, 0, (t % 1 > .5))
                 )
 
             else:
