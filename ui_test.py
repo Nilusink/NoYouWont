@@ -298,6 +298,7 @@ def main():
         ## on display
         to_draw = []
         to_shadow = []
+        to_warn = []
         for line in roads:
             if line.dist > radius:
                 continue
@@ -321,11 +322,19 @@ def main():
             )
 
             if line.vmax > 0:
-                if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
+                # if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
+                if line.vmax * 1.1 + 30 >= speed:
                     to_draw.append((p1, p2))
 
+                elif line.vmax * 1.1 + 50 < speed:
+                    to_warn.append((p1, p2))
+
                 else:
-                    to_shadow.append((p1, p2))
+                    if line.priority == 0:
+                        to_draw.append((p1, p2))
+
+                    else:
+                        to_shadow.append((p1, p2))
 
             else:
                 if line.priority <= detail_level:
@@ -336,6 +345,7 @@ def main():
 
         draw_roads_pointer(to_draw, Color().from_1(.8, .8, .8))
         draw_roads_pointer(to_shadow, Color().from_1(.3, .3, .3))
+        draw_roads_pointer(to_warn, Color().from_1(.5, .1, .1))
 
         for cam in cams:
             pos = cam.pos.copy()
