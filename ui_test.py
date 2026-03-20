@@ -215,7 +215,7 @@ def get_detail(radius: float) -> float:
 
 
 def get_radius(speed):
-    return (speed / 3.6) * 60
+    return max([50, (speed / 3.6) * 60])
 
 
 def offset_center(lat, lon, rotation, radius) -> tuple[float, float]:
@@ -264,9 +264,10 @@ def main():
         renderer.window_size[0]/2,
         renderer.window_size[1]/2
     )
-    speed = 1
+    speed = 0
 
     ocenter = Vec2()
+    max_speed = 0
     while True:
         t = time.time()
         for event in pg.event.get():
@@ -279,6 +280,7 @@ def main():
                     1,
                     speed + event.y * 10
                 ])
+                max_speed = max(max_speed, speed)
                 print(speed)
                 # print(
                 #     speed,
@@ -386,37 +388,38 @@ def main():
         draw_roads_pointer(to_shadow, Color().from_1(.3, .3, .3))
         draw_roads_pointer(to_warn, Color().from_1(.5, .1, .1))
 
-        for cam in cams:
-            pos = cam.pos.copy()
-            pos.angle += rot
-            pos = meters_to_pixels(pos.x, pos.y, latc, lonc, radius, screen_radius * 2)
+        if max_speed > 50:
+            for cam in cams:
+                pos = cam.pos.copy()
+                pos.angle += rot
+                pos = meters_to_pixels(pos.x, pos.y, latc, lonc, radius, screen_radius * 2)
 
-            if "count_cluster" in cam.info:
-                renderer.draw_circle(
-                    pos,
-                    6,
-                    8,
-                    Color().from_1(1, 1, 1, (2*t % 1 > .5))
-                )
+                if "count_cluster" in cam.info:
+                    renderer.draw_circle(
+                        pos,
+                        6,
+                        8,
+                        Color().from_1(1, 1, 1, (2*t % 1 > .5))
+                    )
 
-            elif cam.type <= 10:
-                renderer.draw_circle(
-                    pos,
-                    dot_size,
-                    8,
-                    Color().from_1(1, 0, 0, (3*t % 1 > .5))
-                )
+                elif cam.type <= 10:
+                    renderer.draw_circle(
+                        pos,
+                        dot_size,
+                        8,
+                        Color().from_1(1, 0, 0, (4*t % 1 > .5))
+                    )
 
-            elif cam.type >= 100:
-                renderer.draw_circle(
-                    pos,
-                    dot_size,
-                    8,
-                    Color().from_1(1, .5, 0, (t % 1 > .5))
-                )
+                elif cam.type >= 100:
+                    renderer.draw_circle(
+                        pos,
+                        dot_size,
+                        8,
+                        Color().from_1(.8, .4, 0, (1.5*t % 1 > .5))
+                    )
 
-            else:
-                print(cam.type)
+                else:
+                    print(cam.type)
 
         # draw "car"
         cen = latlon_to_meters(lat, lon, lat, lon)
