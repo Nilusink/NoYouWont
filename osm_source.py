@@ -3,7 +3,7 @@ import json
 
 # Center coordinate
 lat, lon = 47.2692, 11.4041
-radius = 10000  # 5 km
+radius = 20000  # 5 km
 
 # Overpass QL query: all highways except footways, cycleways, paths, tracks
 overpass_query = f"""

@@ -4,7 +4,7 @@ import json
 
 
 lat, lon = 47.2692, 11.4041
-radius = 5000  # 5 km
+radius = 20000  # 5 km
 
 
 def bounding_box(lat_center, lon_center, radius_m):

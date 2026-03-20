@@ -37,6 +37,11 @@ def get_cam_data() -> list:
     return data["pois"]
 
 
+def get_river_data() -> list:
+    data = json.load(open("buffer_rivers.json", "r"))
+    return data["elements"]
+
+
 def draw_roads_pointer(roads, color: Color):
     vertices = np.array(
         [coord for seg in roads for point in seg for coord in point],
@@ -53,7 +58,7 @@ def draw_roads_pointer(roads, color: Color):
 lat, lon = 47.2612, 11.3341
 RADIUS = 3000  # 5 km
 screen_radius = 120
-dot_size = 3
+dot_size = 4
 
 
 def latlon_to_meters(lat1, lon1, lat2, lon2):
@@ -133,6 +138,37 @@ ROAD_TYPES: dict[str, int] = {
     "busway": 211,      # bus-only roads (newer tag)
 }
 
+SPEED_TYPES: dict[str, int] = {
+    # Austria default zones
+    "AT:urban": 50,
+    "AT:rural": 100,
+    "AT:trunk": 100,
+    "AT:highway": 130,
+    "AT:residential": 30,
+    "AT:school": 30,
+    "AT:construction": 60,
+    "AT:variable": 0,  # must read sign
+    "AT:none": 130,    # motorway with no explicit limit
+
+    # Germany examples (common)
+    "DE:urban": 50,
+    "DE:rural": 100,
+    "DE:zone30": 30,
+    "DE:autobahn": 130,
+
+    # Switzerland examples
+    "CH:urban": 50,
+    "CH:rural": 80,
+    "CH:autobahn": 120,
+
+    # Other generic codes
+    "walk": 5,
+    "signals": 0,     # obey traffic lights
+    "none": 130,      # no limit → default high-speed
+    "national": 100,
+    "living_street": 20,
+}
+
 
 def get_roads(
         street_data
@@ -165,7 +201,18 @@ def get_roads(
                 priority = 300
 
             if "maxspeed" in tags:
-                vmax = int(tags["maxspeed"])
+                vmax = tags["maxspeed"]
+                try:
+                    vmax = int(vmax)
+
+                except ValueError:
+                    if vmax in SPEED_TYPES:
+                        vmax = SPEED_TYPES[vmax]
+
+                    else:
+                        print(vmax)
+                        vmax = -1
+
                 # print(hw, street["tags"])
 
             else:
@@ -179,6 +226,36 @@ def get_roads(
             ))
 
     return roads
+
+
+def get_rivers(
+        river_data
+) -> list[tuple[Vec2, Vec2]]:
+    rivers = []
+
+    for river in river_data:
+        nodes = []
+        if "geometry" not in river:
+            print("\n\nNAN:", river)
+            continue
+
+        for point in river["geometry"]:
+            x, y = latlon_to_meters(
+                point["lat"],
+                point["lon"],
+                lat,
+                lon,
+            )
+
+            nodes.append(Vec2().from_cartesian(x, y))
+
+        for i in range(len(nodes) - 1):
+            n1 = nodes[i]
+            n2 = nodes[i+1]
+
+            rivers.append((n1, n2))
+
+    return rivers
 
 
 def get_cams(cam_data) -> list[RadarWarning]:
@@ -256,9 +333,11 @@ def main():
 
     street_data = get_osm_data()
     cam_data = get_cam_data()
+    river_data = get_river_data()
 
     roads = get_roads(street_data)
     cams = get_cams(cam_data)
+    rivers = get_rivers(river_data)
 
     cc = Vec2().from_cartesian(
         renderer.window_size[0]/2,
@@ -307,7 +386,6 @@ def main():
 
         glClearColor(0.0, 0.0, 0.3, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-
 
         detail_level = get_detail(radius)
 
@@ -387,6 +465,42 @@ def main():
         draw_roads_pointer(special, Color().from_1(1, .6, .6))
         draw_roads_pointer(to_shadow, Color().from_1(.3, .3, .3))
         draw_roads_pointer(to_warn, Color().from_1(.5, .1, .1))
+
+        # rivers
+        drawn_rivers = []
+        for line in rivers:
+            dist = min([
+                (line[0] - ocenter).length,
+                (line[1] - ocenter).length
+            ])
+            if dist > radius:
+                continue
+
+            tmp1 = line[0].copy()
+            tmp2 = line[1].copy()
+
+            tmp1.angle += rot
+            tmp2.angle += rot
+
+            p1 = meters_to_pixels(
+                *tmp1.xy,
+                latc,
+                lonc,
+                radius,
+                screen_radius * 2
+            )
+
+            p2 = meters_to_pixels(
+                *tmp2.xy,
+                latc,
+                lonc,
+                radius,
+                screen_radius * 2
+            )
+
+            drawn_rivers.append((p1, p2))
+
+        draw_roads_pointer(drawn_rivers, Color().from_1(.3, .3, .6))
 
         if max_speed > 50:
             for cam in cams:
