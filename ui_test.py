@@ -210,8 +210,12 @@ def get_detail(radius: float) -> float:
     return 20 * ((500/radius) ** 1.285)
 
 
-def get_radius(speed: float) -> float:
-    return 100 + 3200 / (1 + (100 / speed) ** 2.5)
+# def get_radius(speed: float) -> float:
+#     return 100 + 3200 / (1 + (100 / speed) ** 2.5)
+
+
+def get_radius(speed):
+    return (speed / 3.6) * 60
 
 
 def offset_center(lat, lon, rotation, radius) -> tuple[float, float]:
