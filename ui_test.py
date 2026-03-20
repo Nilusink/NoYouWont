@@ -68,9 +68,67 @@ def latlon_to_pixel(lat, lon, lat_center, lon_center, radius_m, screen_size):
     return meters_to_pixels(dx, dy, radius_m, screen_size)
 
 
+ROAD_TYPES: dict[str, int] = {
+    # Major roads
+    "motorway": 0,
+    "motorway_link": 0,
+
+    "trunk": 1,
+    "trunk_link": 1,
+
+    "primary": 2,
+    "primary_link": 2,
+
+    "secondary": 3,
+    "secondary_link": 3,
+
+    "tertiary": 4,
+    "tertiary_link": 4,
+
+    # Normal roads
+    "unclassified": 5,
+    "residential": 6,
+    "living_street": 7,
+    "service": 8,
+
+    # Special drivable / edge
+    "road": 9,          # unknown classification
+    "escape": 10,
+    "bus_guideway": 11,
+
+    # Rural / low importance
+    "track": 12,
+    "rest_area": 13,
+
+    # Non-car infrastructure
+    "pedestrian": 100,
+    "footway": 101,
+    "cycleway": 102,
+    "path": 103,
+    "bridleway": 104,
+    "steps": 105,
+
+    # Rare / special
+    "corridor": 110,    # indoor mapped ways
+    "platform": 111,    # public transport platforms
+
+    # Lifecycle states
+    "construction": 200,
+    "proposed": 201,
+    "abandoned": 202,
+    "disused": 203,
+    "ladder": 204,
+    "scramble": 205,
+
+    # Other uncommon
+    "raceway": 210,
+    "busway": 211,      # bus-only roads (newer tag)
+}
+
+
 def get_roads(
         street_data
-) -> list[tuple[Vec2, Vec2, float]]:
+) -> list[tuple[Vec2, Vec2, float, int]]:
     roads = []
 
     center = Vec2().from_cartesian(screen_radius, screen_radius)
@@ -91,13 +149,23 @@ def get_roads(
         for i in range(len(nodes) - 1):
             n1 = nodes[i]
             n2 = nodes[i+1]
+
+            hw = street["tags"]["highway"]
+            if hw in ROAD_TYPES:
+                priority = ROAD_TYPES[hw]
+
+            else:
+                priority = 300
+                # print(hw, street["tags"])
+
             roads.append((
                 n1,
                 n2,
                 max([
                     n1.length,
                     n2.length
-                ])
+                ]),
+                priority
             ))
 
     return roads
@@ -159,6 +227,9 @@ def main():
         glClearColor(0.0, 0.0, 0.3, 1)
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
+        # detail_level = (2 - (radius / 3000))
+        detail_level = abs(max(0, min(12, 12-m.log(radius / 625, 2))))
+
         # draw
         ## create display
         renderer.start_stencil(True)
@@ -173,6 +244,9 @@ def main():
         ## on display
         to_draw = []
         for line in roads:
+            if line[3] > detail_level:
+                continue
+
             if line[2] <= radius:
                 tmp1 = line[0].copy()
                 tmp2 = line[1].copy()
