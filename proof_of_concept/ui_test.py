@@ -437,7 +437,7 @@ def main():
 
             if line.vmax > 0:
                 # if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
-                if line.vmax * 1.03 + 20 >= speed:
+                if line.vmax * 1.12 >= speed:
                     to_draw.append((p1, p2))
 
                 elif line.vmax * 1.03 + 50 < speed:
