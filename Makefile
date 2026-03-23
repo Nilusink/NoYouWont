@@ -1,145 +1,51 @@
-# the default env configuration that is used when not
-# specified in env.mk
-CARG = 
-LARG = 
-USER = access
-HOST = 10.42.0.149
-LCORES =-j4
-RCORES =-j2
+# ==========================
+# Makefile for ARM 32-bit
+# ==========================
 
-# include environment configuration that includes deployment
-# host and user name, compiler flags and other config
-include env.mk
+# Compiler
+CC = arm-linux-gnueabihf-g++
+CFLAGS = -g -std=c++17 -march=armv7-a -mfpu=neon -mfloat-abi=hard -Iinclude -Isrc -lcurl -lnlohmann_json
+LDFLAGS = -lpthread -lcurl
 
-
-# project structure
+# Project directories
 SRC_DIR = src
 INCLUDE_DIR = include
-DEV_INCLUDE = devinclude
 OBJ_DIR = obj
 RUN_DIR = run
-MOUNT_FOLDER = mount
-WORKSPACE_NAME = $(shell basename ${PWD})
 
-# C++ configurations
-CC = aarch64-linux-gnu-g++
-CFLAGS = -g $(ADDINC) -I$(INCLUDE_DIR) -I$(SRC_DIR) $(CARG) -std=c++17
-LIBS = -lpthread -lkipr $(LARG)
-
-# files and compliation results
+# Sources and objects
 SRC_SOURCES = $(shell find $(SRC_DIR) -name '*.cpp')
-SRC_OBJECTS_TEMP = $(patsubst %.cpp,%.o,$(SRC_SOURCES))
-SRC_OBJECTS = $(patsubst $(SRC_DIR)/%,$(OBJ_DIR)/src/%,$(SRC_OBJECTS_TEMP))
+SRC_OBJECTS = $(patsubst $(SRC_DIR)/%.cpp,$(OBJ_DIR)/src/%.o,$(SRC_SOURCES))
 
 INCLUDE_SOURCES = $(shell find $(INCLUDE_DIR) -name '*.cpp')
-INCLUDE_OBJECTS_TEMP = $(patsubst %.cpp,%.o,$(INCLUDE_SOURCES))
-INCLUDE_OBJECTS = $(patsubst $(INCLUDE_DIR)/%,$(OBJ_DIR)/include/%,$(INCLUDE_OBJECTS_TEMP))
+INCLUDE_OBJECTS = $(patsubst $(INCLUDE_DIR)/%.cpp,$(OBJ_DIR)/include/%.o,$(INCLUDE_SOURCES))
 
+# Executable
 EXECUTABLE = $(RUN_DIR)/main
 
-REMOTE_OBJECTS = $(shell find $(OBJ_DIR) -name '*.o')
+# ==========================
+# Rules
+# ==========================
 
-## == Compilation
+all: $(EXECUTABLE)
 
-# create executable file from all object files
+# Link all objects
 $(EXECUTABLE): $(SRC_OBJECTS) $(INCLUDE_OBJECTS)
 	mkdir -p $(RUN_DIR)
-	$(CC) $(SRC_OBJECTS) $(INCLUDE_OBJECTS) -o $@ $(LIBS)
+	$(CC) $^ -o $@ $(LDFLAGS)
 
-# create object file for every source file in source
+# Compile src files
 $(OBJ_DIR)/src/%.o: $(SRC_DIR)/%.cpp
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# create object file for every source file in include
+# Compile include files
 $(OBJ_DIR)/include/%.o: $(INCLUDE_DIR)/%.cpp
 	mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# links pre-copied objects on the remote target (hybrid link)
-hlink: $(REMOTE_OBJECTS)
-	mkdir -p $(RUN_DIR)
-	$(CC) $(REMOTE_OBJECTS) -o $(EXECUTABLE) $(LIBS)
-
-
-## == Local object compilation
-local_compile: $(SRC_OBJECTS) $(INCLUDE_OBJECTS)
-
-## == Remote target management
-
-# run main binary remote target
-remote_start: 
-	ssh -t $(USER)@$(HOST) "cd projects/$(WORKSPACE_NAME); $(RUN_DIR)/main"
-
-# envoke build on remote target
-remote_build:
-	ssh $(USER)@$(HOST) "bash -c \"cd projects/$(WORKSPACE_NAME) && make $(RCORES)\""
-
-# envoke hlink on remote target
-remote_hlink:
-	ssh $(USER)@$(HOST) "bash -c \"cd projects/$(WORKSPACE_NAME) && make hlink\""
-
-# copy sources and Makefile to remote target
-copy_sources:
-	ssh $(USER)@$(HOST) "rm -rf projects/$(WORKSPACE_NAME)/* && mkdir -p projects/$(WORKSPACE_NAME)/$(SRC_DIR) && mkdir -p projects/$(WORKSPACE_NAME)/$(INCLUDE_DIR)"
-	scp -r ../$(WORKSPACE_NAME)/$(SRC_DIR) $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/
-	scp -r ../$(WORKSPACE_NAME)/$(INCLUDE_DIR) $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/
-	scp -r ../$(WORKSPACE_NAME)/Makefile $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/Makefile
-	scp -r ../$(WORKSPACE_NAME)/env.mk $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/env.mk
-
-# copy compiled objects and Makefile to remote target
-copy_objects:
-	ssh $(USER)@$(HOST) "rm -rf projects/$(WORKSPACE_NAME)/* && mkdir -p projects/$(WORKSPACE_NAME)/$(SRC_DIR) && mkdir -p projects/$(WORKSPACE_NAME)/$(INCLUDE_DIR)"
-	scp -r ../$(WORKSPACE_NAME)/$(OBJ_DIR) $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/
-	scp -r ../$(WORKSPACE_NAME)/Makefile $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/Makefile
-	scp -r ../$(WORKSPACE_NAME)/env.mk $(USER)@$(HOST):projects/$(WORKSPACE_NAME)/env.mk
-
-# open shell on remote target
-shell:
-	ssh -t $(USER)@$(HOST) "cd projects/$(WORKSPACE_NAME); exec '$$SHELL'"
-
-# invokes ssh-keygen
-keygen:
-	ssh-keygen
-	
-# invokes ssh copy ID for the remote host
-keycopy:
-	ssh-copy-id $(USER)@$(HOST)
-
-
-## == shortcuts and convenience features
-
-# quickly copy files to target, compile and start on target
-start:
-	make copy_sources
-	make remote_build
-	make remote_start
-
-hstart: 
-	make local_compile $(LCORES) ADDINC=-I$(DEV_INCLUDE)
-	make copy_objects
-	make remote_hlink
-	make remote_start
-
-# quickly copy files to target and compile them
-build:
-	make copy_sources
-	make remote_build
-
-# localy builds objects, then copies them to the target and links them there
-hbuild:
-	make local_compile $(LCORES) ADDINC=-I$(DEV_INCLUDE)
-	make copy_objects
-	make remote_hlink
-
-# mount the 
-mount:
-	mkdir -p $(MOUNT_FOLDER)
-	sshfs -o allow_other $(USER)@$(HOST):/ $(MOUNT_FOLDER)
-
-unmount:
-	sudo umount $(MOUNT_FOLDER)
-
-# remove all subfolders and files of the object dir and the executable
+# Clean everything
 clean:
-	rm -rf $(EXECUTABLE) $(OBJ_DIR)/*
+	rm -rf $(OBJ_DIR) $(RUN_DIR)
+
+.PHONY: all clean

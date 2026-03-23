@@ -4,6 +4,8 @@ from libc.math cimport sqrt, atan2, cos, sin, pi, fmod
 
 
 cdef class Vec2:
+    cdef x, y
+
     def __cinit__(self):
         self.x = 0.0
         self.y = 0.0

@@ -12,7 +12,7 @@ import os
 
 extensions = []
 
-base_package = "render_bindings"
+base_package = "hud_lib"
 
 for root, _, files in os.walk(base_package):
     for file in files:

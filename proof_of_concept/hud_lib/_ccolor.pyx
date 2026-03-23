@@ -100,6 +100,14 @@ cdef class Color:
     cpdef tuple get_rgba255(self):
         return self._r255, self._g255, self._b255, self._a255
 
+    cpdef int get_bgr565(self):
+        cdef r5 = self._b255 >> 3
+        cdef g6 = self._g255 >> 2
+        cdef b5 = self._r255 >> 3
+
+        # Pack in BGR565 order: BBBBB GGGGGG RRRRR
+        return (b5 << 11) | (g6 << 5) | r5
+
     cpdef Color set_rgb1(self, double r, double g, double b):  # type: (float, float, float) -> Color
         self._r1 = r
         self._g1 = g
