@@ -17,7 +17,7 @@ ROADS_REQUEST_RADIUS = 15_000  # if 15km from last request, = 5km before running
 REQUEST_TIMEOUT = 60
 
 CAMS_UPDATE_FREQ = 60
-GPS_UPDATE_FREQ = 1
+GPS_UPDATE_FREQ = .1
 
 ROAD_TYPES: dict[str, int] = {
     # Major roads

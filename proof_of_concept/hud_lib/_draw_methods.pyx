@@ -1,13 +1,14 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True
 cimport cython
 from libc.stdint cimport uint16_t
+from ._cfonts cimport font8x8_basic
 
 
 cdef inline void _put_pixel(uint16_t[:] fb, int width, int x, int y, uint16_t color):
     fb[y * width + x] = color
 
 
-def draw_line(uint16_t[:] fb, int width, int x0, int y0, int x1, int y1, uint16_t color):
+cpdef void draw_line(uint16_t[:] fb, int width, int x0, int y0, int x1, int y1, uint16_t color):
     cdef int dx = abs(x1 - x0)
     cdef int dy = -abs(y1 - y0)
     cdef int sx = 1 if x0 < x1 else -1
@@ -28,7 +29,7 @@ def draw_line(uint16_t[:] fb, int width, int x0, int y0, int x1, int y1, uint16_
             y0 += sy
 
 
-def draw_lines(uint16_t[:] fb, int width, list points, uint16_t color):
+cpdef void draw_lines(uint16_t[:] fb, int width, list points, uint16_t color):
     cdef int i, x0, y0, x1, y1
     for i in range(len(points) - 1):
         x0, y0 = points[i]
@@ -36,7 +37,7 @@ def draw_lines(uint16_t[:] fb, int width, list points, uint16_t color):
         draw_line(fb, width, x0, y0, x1, y1, color)
 
 
-def draw_circle(uint16_t[:] fb, int width, int cx, int cy, int radius, uint16_t color):
+cpdef void draw_circle(uint16_t[:] fb, int width, int cx, int cy, int radius, uint16_t color):
     cdef int x = radius
     cdef int y = 0
     cdef int err = 0
@@ -60,7 +61,7 @@ def draw_circle(uint16_t[:] fb, int width, int cx, int cy, int radius, uint16_t 
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def draw_filled_circle(uint16_t[:] fb, int width, int cx, int cy, int radius, uint16_t color):
+cpdef void draw_filled_circle(uint16_t[:] fb, int width, int cx, int cy, int radius, uint16_t color):
     cdef int x, y
     cdef int x0, x1
     cdef int r2 = radius * radius
@@ -68,3 +69,23 @@ def draw_filled_circle(uint16_t[:] fb, int width, int cx, int cy, int radius, ui
         for x in range(cx - radius, cx + radius + 1):
             if (x - cx)*(x - cx) + (y - cy)*(y - cy) <= r2:
                 fb[y * width + x] = color
+
+
+cpdef void draw_char(
+        uint16_t[:] fb,
+        int width,
+        int x, int y,
+        char character,
+        uint16_t color
+):
+
+    cdef int row, col
+    cdef unsigned char bits
+
+    cdef const unsigned char[:] glyph = font8x8_basic[character]
+
+    for row in range(8):
+        bits = glyph[row]
+        for col in range(8):
+            if bits & (1 << col):  # <-- remove 7 - col
+                fb[(y + row) * width + (x + col)] = color

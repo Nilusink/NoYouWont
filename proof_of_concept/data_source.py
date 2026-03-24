@@ -121,6 +121,8 @@ def start_data_source(
     """
     initialize data source and run continuously
     """
+    d_start = perf_counter()
+
     comm.send("0")
     # make sure events are cleared
     set_roads_event.clear()
@@ -298,10 +300,10 @@ def start_data_source(
 
                         else:
                             print(vmax)
-                            vmax = -1
+                            vmax = 0
 
                 else:
-                    vmax = -1
+                    vmax = 0
 
                 proc_roads.append(StreetSegment(
                     ax=n1[0],
@@ -344,7 +346,7 @@ def start_data_source(
         updates position, velocity and heading
         """
         nonlocal pos
-        pos = 47.2692, 11.4041  # innsbruck
+        pos = 47.2692, 11.4041 - (perf_counter() - d_start) / 1000  # innsbruck
 
         # get velocity from last 3 positions
         dx, dy = latlon_to_meters(
@@ -363,7 +365,7 @@ def start_data_source(
             pos[0],
             pos[1],
         )
-        curr_speed.value = 200#vel * 3.6  # m/s to km/h
+        curr_speed.value = 150#vel * 3.6  # m/s to km/h
 
         # increment positions
         pos_cache[2] = pos_cache[1]

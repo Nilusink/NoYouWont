@@ -1,6 +1,7 @@
 from numpy import ndarray, dtype, float64
-from mmap import mmap
+from ctypes import c_char
 from typing import Any
+from mmap import mmap
 
 
 type fb_t = mmap | ndarray[tuple[Any, ...], dtype[float64]] | ndarray[tuple[Any, ...], dtype
@@ -9,3 +10,5 @@ def draw_lines(fb: fb_t, width: int, points: list[tuple[int, int]], color: int) 
 
 def draw_circle(fb: fb_t, width: int, cx: int, cy: int, radius: int, color: int) -> None: ...
 def draw_filled_circle(fb: fb_t, width: int, cx: int, cy: int, radius: int, color: int) -> None: ...
+
+def draw_char(fb: fb_t, width: int, x: int, y: int, character: c_char, clor: int) -> None: ...

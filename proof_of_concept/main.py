@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from time import sleep, perf_counter
 import numpy as np
 import math as m
+import os
 import ctypes
 
 from hud_lib import MAX_CAMS, MAX_ROADS, road_t, speedcam_t, SCREEN_RADIUS, \
@@ -14,6 +15,7 @@ from display_driver import DisplayDriver
 
 MAP_INTERVAL: float = 2
 DOT_SIZE: int = 4
+BUFFER_SIZE_FAC = 1.5
 
 
 WHITE = Color().from_1(1, 1, 1)
@@ -22,12 +24,12 @@ car_color = Color().from_1(0, 1, 1)
 bg_color = BLACK
 road_color = WHITE
 warn_color = Color().from_1(.5, .1, .1)
-shadow_color = Color().from_1(.3, .3, .3)
+shadow_color = Color().from_1(.2, .2, .2)
 special_color = Color().from_1(1, .6, .6)
 
 
 def main():
-    display = DisplayDriver()
+    display = DisplayDriver(buffer_size_factor=BUFFER_SIZE_FAC)
 
     # create fancy process stuff
     parent_com, child_com = Pipe()
@@ -37,6 +39,15 @@ def main():
 
     road_shm = shared_memory.SharedMemory(create=True, size=road_size * MAX_ROADS)
     cam_shm = shared_memory.SharedMemory(create=True, size=cam_size * MAX_CAMS)
+
+    pixel_offset = (
+        (display.buffer_width - display.width) // 2,
+        (display.buffer_height - display.height) // 2
+    )
+    buffer_min_x = 0
+    buffer_min_y = 0
+    buffer_max_x = display.buffer_width
+    buffer_max_y = display.buffer_height
 
     cams_event = Event()
     roads_event = Event()
@@ -74,70 +85,66 @@ def main():
     map_update_buffer = np.zeros_like(display.get_buffer(), dtype=np.uint16)
 
     def update_roads():
-        nonlocal roads_updating, roads, detail_level
+        nonlocal roads_updating, roads, radius, lat, lon, latc, lonc
         roads_updating = True
         to_draw = []
         to_shadow = []
         to_warn = []
         special = []
 
+        detail_level = get_detail(radius)
+        start = perf_counter()
         try:
-
             # reset map buffer
             map_update_buffer[:] = 0
 
-            print(num_roads.value)
+            # calculate roads
             for i in range(num_roads.value):
                 line = roads[i]
 
                 x1, y1 = latlon_to_meters(
                     line.ax,
                     line.ay,
-                    lat,
-                    lon
+                    latc,
+                    lonc
                 )
                 x2, y2 = latlon_to_meters(
                     line.bx,
                     line.by,
-                    lat,
-                    lon
+                    latc,
+                    lonc
                 )
-
-                if (
-                        x1 - latc > radius
-                        or y1 - lonc > radius
-                        or x2 - latc > radius
-                        or y2 - lonc > radius
-                ):
-                    continue
-                #
-                # tmp1 = Vec2()
-                # tmp2 = Vec2()
-                #
-                # tmp1.angle += rot
-                # tmp2.angle += rot
 
                 p1 = meters_to_pixels(
                     x1,
                     y1,
-                    latc,
-                    lonc,
-                    radius,
-                    SCREEN_RADIUS * 2
+                    0,
+                    0,
+                    radius * BUFFER_SIZE_FAC,
+                    display.buffer_width,
                 )
 
                 p2 = meters_to_pixels(
                     x2,
                     y2,
-                    latc,
-                    lonc,
-                    radius,
-                    SCREEN_RADIUS * 2
+                    0,
+                    0,
+                    radius * BUFFER_SIZE_FAC,
+                    display.buffer_width,
                 )
+
+                if (
+                    not buffer_min_x <= p1[0] <= buffer_max_x
+                    or not buffer_min_y <= p1[1] <= buffer_max_y
+                    or not buffer_min_x <= p2[0] <= buffer_max_x
+                    or not buffer_min_y <= p2[1] <= buffer_max_y
+                ):
+                    continue
 
                 if line.vmax > 0:
                     # if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
                     if line.vmax * 1.12 >= speed:
+                        print(line.vmax)
                         to_draw.append((p1, p2))
 
                     elif line.vmax * 1.03 + 50 < speed:
@@ -161,6 +168,38 @@ def main():
                     else:
                         to_shadow.append((p1, p2))
 
+            # calculate cams
+            if max_speed > 50:
+                updated_cluster_cams.clear()
+                updated_stationary_cams.clear()
+                updated_mobile_cams.clear()
+                for i in range(num_cams.value):
+                    cam = cams[i]
+
+                    x, y = latlon_to_meters(
+                        cam.x,
+                        cam.y,
+                        latc,
+                        lonc
+                    )
+
+                    pos = meters_to_pixels(
+                        x, y,
+                        0, 0,
+                        radius * BUFFER_SIZE_FAC,
+                        display.buffer_width,
+                    )
+
+                    if cam.is_cluster:
+                        updated_cluster_cams.append(pos)
+
+                    elif cam.type <= 10:
+                        updated_mobile_cams.append(pos)
+
+                    elif cam.type >= 100:
+                        updated_stationary_cams.append(pos)
+
+            # draw roads
             for line in to_draw:
                 display.draw_line(*line[0], *line[1], road_color.get_bgr565(), to_buffer=map_update_buffer)
 
@@ -175,7 +214,6 @@ def main():
 
             # update screen buffer
             roads_updating = False
-            print("map")
 
         except Exception as e:
             print(e)
@@ -213,7 +251,18 @@ def main():
 
     ocenter = Vec2()
     max_speed = 0
-    last_map = 0
+    radius = 0
+    lat = 0
+    lon = 0
+    latc = 0
+    lonc = 0
+    cluster_cams = []
+    updated_cluster_cams = []
+    stationary_cams = []
+    updated_stationary_cams = []
+    mobile_cams = []
+    updated_mobile_cams = []
+    n_loop = 0
     while True:
         try:
             start = perf_counter()
@@ -232,18 +281,14 @@ def main():
 
             # calculate position stuff
             lat, lon = curr_lat.value, curr_lon.value
-            latc, lonc = latlon_to_meters(
-                *offset_center(lat, lon, m.pi/2, radius/2.5),
-                lat, lon
-            )
-            ocenter.xy = latc, lonc
-            ocenter.angle = -rot + m.pi / 2
-
-            detail_level = get_detail(radius)
 
             # draw roads to buffer
             if not roads_updating:
                 np.copyto(current_map_buffer, map_update_buffer)
+                latc, lonc = lat, lon
+                cluster_cams = updated_cluster_cams.copy()
+                stationary_cams = updated_stationary_cams.copy()
+                mobile_cams = updated_mobile_cams.copy()
                 pool.submit(update_roads)
 
             # draw roads from buffer
@@ -251,75 +296,65 @@ def main():
             display.transmit_buffer(current_map_buffer)
 
             # draw speed cams
-            if max_speed > 50:
-                for i in range(num_cams.value):
-                    cam = cams[i]
-
-                    x, y = latlon_to_meters(
-                        cam.x,
-                        cam.y,
-                        lat,
-                        lon
+            if n_loop % 12 < 6:
+                for cam in cluster_cams:
+                    display.draw_filled_circle(
+                        cam[0],
+                        cam[1],
+                        DOT_SIZE * 2,
+                        Color().from_1(1, 1, 1).get_bgr565()
                     )
 
-                    pos = Vec2().from_cartesian(x, y)
-
-                    # pos.angle += rot
-                    pos = meters_to_pixels(
-                        *pos.xy,
-                        latc, lonc,
-                        radius,
-                        SCREEN_RADIUS * 2
+            if n_loop % 6 < 3:
+                for cam in stationary_cams:
+                    display.draw_filled_circle(
+                        cam[0],
+                        cam[1],
+                        DOT_SIZE,
+                        Color().from_1(1, 1, 1).get_bgr565()
                     )
 
-                    if cam.is_cluster:
-                        if 2 * start % 1 > .5:
-                            display.draw_filled_circle(
-                                pos[0],
-                                pos[1],
-                                DOT_SIZE,
-                                Color().from_1(1, 1, 1).get_bgr565()
-                            )
-                            continue
+            if n_loop % 2 < 1:
+                for cam in mobile_cams:
+                    display.draw_filled_circle(
+                        cam[0],
+                        cam[1],
+                        DOT_SIZE,
+                        Color().from_1(.8, .4, 0).get_bgr565()
+                    )
 
-                    elif cam.type <= 10:
-                        if 4 * start % 1 > .5:
-                            display.draw_filled_circle(
-                                pos[0],
-                                pos[1],
-                                DOT_SIZE,
-                                Color().from_1(1, 1, 1).get_bgr565()
-                            )
-                            continue
-
-                    elif cam.type >= 100:
-                        if 1.5 * start % 1 > .5:
-                            display.draw_filled_circle(
-                                pos[0],
-                                pos[1],
-                                DOT_SIZE,
-                                Color().from_1(.8, .4, 0).get_bgr565()
-                            )
-                            continue
+            # calculate driven since last map update
+            off_meters = latlon_to_meters(lat, lon, latc, lonc)
+            off_pixels = (
+                int(off_meters[0] * (display.width / (2 * radius))),
+                int(off_meters[1] * (display.width / (2 * radius)))
+            )
 
             # draw "car"
-            cen = latlon_to_meters(lat, lon, lat, lon)
-            pos = meters_to_pixels(cen[0], cen[1], latc, lonc, radius, SCREEN_RADIUS*2)
+            pivot_x = display.buffer_width // 2 + off_pixels[0]
+            pivot_y = display.buffer_height // 2 + off_pixels[1]
             display.draw_filled_circle(
-                pos[0],
-                pos[1],
+                pivot_x,
+                pivot_y,
                 5,
                 car_color.get_bgr565()
             )
 
-            display.update()
+            display.update(
+                pivot_x=pivot_x,
+                pivot_y=pivot_y,
+                offset_y=50,
+                # angle_rad=(start / 4) % m.pi * 2
+                angle_rad=-m.pi / 2
+            )
 
             # print child process output
             while parent_com.poll(0):
                 msg = parent_com.recv()
                 print(f"child> {msg}")
 
-            # print(perf_counter() - start)
+            n_loop += 1
+            print(perf_counter() - start)
 
         except KeyboardInterrupt:
             # delete memory views
