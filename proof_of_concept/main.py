@@ -311,7 +311,7 @@ def main():
                         cam[0],
                         cam[1],
                         DOT_SIZE,
-                        Color().from_1(1, 1, 1).get_bgr565()
+                        Color().from_1(.8, .4, 0).get_bgr565()
                     )
 
             if n_loop % 2 < 1:
@@ -320,7 +320,7 @@ def main():
                         cam[0],
                         cam[1],
                         DOT_SIZE,
-                        Color().from_1(.8, .4, 0).get_bgr565()
+                        Color().from_1(1, 0, 0).get_bgr565()
                     )
 
             # calculate driven since last map update

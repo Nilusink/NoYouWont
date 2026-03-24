@@ -279,6 +279,18 @@ class DisplayDriver:
         for i in range(len(text)):
             draw_char(buf, self.buffer_width, x + i*8, y, ord(text[i]), color)
 
+    def direct_update(self) -> None:
+        """
+        only works if buffer is same size as screen
+        """
+        if self.buffer_width != self.width:
+            raise RuntimeError("direct_update only works if buffer is same size as screen")
+
+        self._d_lock.acquire()
+        np.copyto(self._fb16, self._buffer16)
+        self._d_lock.release()
+
+
     def update(
             self,
             pivot_x: int = 0,

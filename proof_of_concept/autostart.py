@@ -53,7 +53,7 @@ def wait_connection(d: DisplayDriver) -> None:
             "Connecting to network " + "." * c,
             Color().from_1(1, 1, 1).get_bgr565()
         )
-        d.update()
+        d.direct_update()
 
         sleep(.5)
 
@@ -72,7 +72,7 @@ def wait_connection(d: DisplayDriver) -> None:
         ip_text,
         Color().from_1(.5, .5, 1).get_bgr565()
     )
-    d.update()
+    d.direct_update()
 
 
 
