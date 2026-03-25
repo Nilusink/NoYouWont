@@ -1,7 +1,7 @@
 # cython: boundscheck=False, wraparound=False, cdivision=True
 cimport cython
 from libc.stdint cimport uint16_t
-from ._cfonts cimport font8x8_basic
+from ._cfonts cimport font8x8_basic, font48_digits
 
 
 cdef inline void _put_pixel(uint16_t[:] fb, int width, int x, int y, uint16_t color):
@@ -88,4 +88,30 @@ cpdef void draw_char(
         bits = glyph[row]
         for col in range(8):
             if bits & (1 << col):  # <-- remove 7 - col
+                fb[(y + row) * width + (x + col)] = color
+
+
+cpdef void draw_digit_48(
+        uint16_t[:] fb,
+        int width,
+        int x, int y,
+        char character,
+        uint16_t color
+):
+    cdef int row, col
+    cdef int byte_index, bit
+    cdef const unsigned char[:] glyph
+
+    # only supports '0'–'9'
+    if character < ord('0') or character > ord('9'):
+        return
+
+    glyph = font48_digits[character]
+
+    for row in range(48):
+        for col in range(48):
+            byte_index = row * 6 + (col >> 3)   # 6 bytes per row
+            bit = 7 - (col & 7)                 # MSB first
+
+            if glyph[byte_index] & (1 << bit):
                 fb[(y + row) * width + (x + col)] = color

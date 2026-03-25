@@ -49,9 +49,10 @@ def wait_connection(d: DisplayDriver) -> None:
 
         d.clear_screen()
         d.draw_text(
-            26, 116,
-            "Connecting to network " + "." * c,
-            Color().from_1(1, 1, 1).get_bgr565()
+            120, 116,
+            "Connecting to network " + "." * c + (3-c) * " ",
+            Color().from_1(1, 1, 1).get_bgr565(),
+            center_text=True
         )
         d.direct_update()
 
@@ -59,18 +60,33 @@ def wait_connection(d: DisplayDriver) -> None:
 
     # get ip
     ip = get_ip()
+    while not ip:
+        c = (c+1) % 4
+        ip = get_ip()
+
+        d.clear_screen()
+        d.draw_text(
+            120, 116,
+            "Waiting for ip " + "." * c + (3-c) * " ",
+            Color().from_1(1, 1, 1).get_bgr565(),
+            center_text=True
+        )
+        d.direct_update()
+
+        sleep(.5)
 
     d.clear_screen()
     d.draw_text(
-        52, 108,
+        120, 108,
         "Connected to WiFi",
-        Color().from_1(1, 1, 1).get_bgr565()
+        Color().from_1(1, 1, 1).get_bgr565(),
+        center_text=True
     )
-    ip_text = "IP: " + ip
     d.draw_text(
-        int((240-len(ip_text)*8)/2), 123,
-        ip_text,
-        Color().from_1(.5, .5, 1).get_bgr565()
+        120, 123,
+        "IP: " + ip,
+        Color().from_1(.5, .5, 1).get_bgr565(),
+    center_text = True
     )
     d.direct_update()
 

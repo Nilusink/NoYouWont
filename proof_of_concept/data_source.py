@@ -346,7 +346,7 @@ def start_data_source(
         updates position, velocity and heading
         """
         nonlocal pos
-        pos = 47.2692, 11.4041 - (perf_counter() - d_start) / 1000  # innsbruck
+        pos = 47.2692 - (perf_counter() - d_start) / 2000, 11.4041 - (perf_counter() - d_start) / 6000  # innsbruck
 
         # get velocity from last 3 positions
         dx, dy = latlon_to_meters(
@@ -359,13 +359,13 @@ def start_data_source(
         vel = dist / (t - pos_cache[2].t)
 
         # set speed and heading
-        curr_rot.value = heading_degrees(
-            pos_cache[2].x,
-            pos_cache[2].y,
-            pos[0],
-            pos[1],
-        )
-        curr_speed.value = 150#vel * 3.6  # m/s to km/h
+        curr_rot.value = m.atan2(dy, dx)#heading_degrees(
+        #     pos_cache[2].x,
+        #     pos_cache[2].y,
+        #     pos[0],
+        #     pos[1],
+        # )
+        curr_speed.value = vel * 3.6  # m/s to km/h
 
         # increment positions
         pos_cache[2] = pos_cache[1]
@@ -377,6 +377,8 @@ def start_data_source(
         # update position
         curr_lat.value = pos[0]
         curr_lon.value = pos[1]
+
+        comm.send(f"{curr_speed.value}km/h, {curr_rot.value}°r")
 
     running = True
     comm.send("starting")

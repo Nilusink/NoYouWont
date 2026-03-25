@@ -8,7 +8,7 @@ Author:
 Nilusink
 """
 from hud_lib import Color, draw_lines, draw_line, draw_circle, draw_filled_circle, \
-    draw_char
+    draw_char, draw_digit_48
 from threading import Lock
 import numpy as np
 import mmap
@@ -272,12 +272,44 @@ class DisplayDriver:
             x: int, y: int,
             text: str,
             color: int,
-            to_buffer: np.ndarray = None
+            to_buffer: np.ndarray = None,
+            center_text: bool = False
     ) -> None:
         buf = to_buffer if to_buffer is not None else self._buffer16
 
+        if center_text:
+            x = round(x - (len(text)*8) / 2)
+            y -= 24
+
         for i in range(len(text)):
             draw_char(buf, self.buffer_width, x + i*8, y, ord(text[i]), color)
+
+    def draw_digit_big(
+            self,
+            x: int, y: int,
+            digit: int,
+            color: int,
+            to_buffer: np.ndarray = None,
+    ) -> None:
+        buf = to_buffer if to_buffer is not None else self._buffer16
+        draw_digit_48(buf, self.buffer_width, x, y, digit, color)
+
+    def draw_digits_big(
+            self,
+            x: int, y: int,
+            digits: str,
+            color: int,
+            to_buffer: np.ndarray = None,
+            center_text: bool = False
+    ) -> None:
+        buf = to_buffer if to_buffer is not None else self._buffer16
+
+        if center_text:
+            x = round(x - (len(digits)*24) / 2) - 12
+            y -= 24
+
+        for i in range(len(digits)):
+            draw_digit_48(buf, self.buffer_width, x + i*24, y, ord(digits[i]), color)
 
     def direct_update(self) -> None:
         """

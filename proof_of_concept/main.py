@@ -8,7 +8,7 @@ import ctypes
 
 from hud_lib import MAX_CAMS, MAX_ROADS, road_t, speedcam_t, SCREEN_RADIUS, \
     latlon_to_meters, meters_to_pixels, offset_center, get_detail, get_radius, \
-    Vec2, Color
+    Vec2, Color, normalize_angle
 from data_source import start_data_source
 from display_driver import DisplayDriver
 
@@ -26,6 +26,36 @@ road_color = WHITE
 warn_color = Color().from_1(.5, .1, .1)
 shadow_color = Color().from_1(.2, .2, .2)
 special_color = Color().from_1(1, .6, .6)
+
+
+def draw_speed_sign(d: DisplayDriver, speed_limit: int) -> None:
+    """
+    draw a speed limit sign
+    """
+    d.clear_screen()
+    d.draw_filled_circle(
+        d.buffer_width // 2,
+        d.buffer_height // 2,
+        d.width // 2,
+        Color().from_1(1, 0, 0).get_bgr565(),
+    )
+    d.draw_filled_circle(
+        d.buffer_width // 2,
+        d.buffer_height // 2,
+        int((d.width // 2) * .8),
+        Color().from_1(1, 1, 1).get_bgr565(),
+    )
+    d.draw_digits_big(
+        d.buffer_width // 2,
+        d.buffer_height // 2,
+        "130",
+        Color().from_1(0, 0, 0).get_bgr565(),
+        center_text=True
+    )
+    d.update(
+        d.buffer_width // 2,
+        d.buffer_height // 2,
+    )
 
 
 def main():
@@ -60,6 +90,10 @@ def main():
     curr_lon = Value("f", 0, lock=True)
     curr_rot = Value("f", 0, lock=True)
     curr_speed = Value("f", 0, lock=True)
+
+    draw_speed_sign(display, 50)
+    sleep(1)
+    return
 
     pool = ThreadPoolExecutor(max_workers=1)
     roads_updating = False
@@ -277,7 +311,7 @@ def main():
                 max_speed = speed
 
             radius = get_radius(speed)
-            rot = -m.pi / 2 - curr_rot.value
+            rot = normalize_angle(curr_rot.value + m.pi / 2)
 
             # calculate position stuff
             lat, lon = curr_lat.value, curr_lon.value
@@ -327,7 +361,7 @@ def main():
             off_meters = latlon_to_meters(lat, lon, latc, lonc)
             off_pixels = (
                 int(off_meters[0] * (display.width / (2 * radius))),
-                int(off_meters[1] * (display.width / (2 * radius)))
+                -int(off_meters[1] * (display.width / (2 * radius)))  # idk why mirror
             )
 
             # draw "car"
@@ -345,7 +379,7 @@ def main():
                 pivot_y=pivot_y,
                 offset_y=50,
                 # angle_rad=(start / 4) % m.pi * 2
-                angle_rad=-m.pi / 2
+                angle_rad=rot
             )
 
             # print child process output
