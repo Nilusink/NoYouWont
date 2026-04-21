@@ -1,0 +1,16 @@
+.idea/
+.venv/
+.venv2/
+build/
+*.c
+*.json
+*.ttf
+*.csv
+*.gpkg
+*.osm.pbf
+
+# google oAuth secrets
+*client_secret*.json
+
+
+gps_debug*

@@ -1,0 +1,250 @@
+"""
+gps_debug_analyzer.py
+16.04.2026
+
+csv analyzer
+
+Author:
+Nilusink
+"""
+from dash import Dash, dcc, html, Input, Output, Patch, State
+import plotly.graph_objects as go
+import pandas as pd
+# import numpy as np
+import os
+
+
+# FILEPATH = "./gps_buff.csv"
+FOLDER = "./logs"
+
+
+def compute_center_and_zoom(lat, lon):
+    lat_min, lat_max = min(lat), max(lat)
+    lon_min, lon_max = min(lon), max(lon)
+
+    center = {
+        "lat": (lat_min + lat_max) / 2,
+        "lon": (lon_min + lon_max) / 2,
+    }
+
+    # crude but effective zoom heuristic
+    lat_range = lat_max - lat_min
+    lon_range = lon_max - lon_min
+    max_range = max(lat_range, lon_range)
+
+    if max_range > 20:
+        zoom = 3
+    elif max_range > 10:
+        zoom = 5
+    elif max_range > 5:
+        zoom = 7
+    elif max_range > 1:
+        zoom = 10
+    else:
+        zoom = 13
+
+    return center, zoom
+
+
+# root = tk.Tk()
+# root.withdraw()
+#
+# file_path = filedialog.askopenfilename(
+#     filetypes=[("debug CSV", "*.csv"), ("debug file", "*")],
+#     initialdir="./"
+# )
+
+files = []
+for file in os.listdir(FOLDER):
+    file_time = float(file.lstrip("gps_debug_").rstrip(".csv"))
+    files.append((file_time, file))
+
+files = sorted(files, key=lambda x: x[0])
+
+file_path = os.path.join(FOLDER, files[-1][1])
+if not os.path.isfile(file_path):
+    exit(1)
+
+with open(file_path, "r") as f:
+    raw_data = f.readlines()[:-1]
+
+init_t = float(raw_data[0].split(",")[0])
+df = pd.DataFrame([
+    {
+        "time": (float(t) - init_t) / 60,
+        "mode": int(m),
+        "lat": float(lat) if lat else None,
+        "lon": float(lon) if lat else None,
+        "speed": round(float(speed), 2) if speed else None,
+        "angle": float(a) if (a := angle.strip()) else None,
+    }
+    for i, line in enumerate(raw_data)
+    for t, m, lat, lon, speed, angle in [line.split(",")]
+])
+
+
+# ----------------------------
+# Figure builders
+# ----------------------------
+def make_map(selected_index=0):
+    fig = go.Figure()
+
+    # Full route
+    center, zoom = compute_center_and_zoom(df["lat"], df["lon"])
+    print(zoom)
+    fig.add_trace(go.Scattermap(
+        lat=df["lat"],
+        lon=df["lon"],
+        mode="lines",
+        line=dict(width=3),
+        marker=dict(size=7),
+        name="Route",
+        hoverinfo="skip"
+    ))
+
+    # Current synced point
+    fig.add_trace(go.Scattermap(
+        lat=[df.loc[selected_index, "lat"]],
+        lon=[df.loc[selected_index, "lon"]],
+        mode="markers",
+        marker=dict(size=18, color="red"),
+        name="Current Point",
+        hovertemplate=(
+            f"t={df.loc[selected_index]}s"
+            "<extra></extra>"
+        )
+    ))
+
+    fig.update_layout(
+        title="Route Map",
+        height=700,
+        uirevision="stay",
+
+        autosize=True,
+        margin=dict(l=0, r=0, t=0, b=0),
+
+        template="plotly_dark",
+        showlegend=False,
+
+        map=dict(
+            center=center,
+            zoom=zoom,
+            style="carto-darkmatter"
+        ),
+    )
+    return fig
+
+
+def make_graph(selected_index=0):
+    fig = go.Figure()
+
+    fig.add_trace(go.Scatter(
+        x=df["time"],
+        y=df["speed"],
+        mode="lines",
+        name="Speed"
+    ))
+
+    # Current synced point
+    fig.add_trace(go.Scatter(
+        x=[df.loc[selected_index, "time"]],
+        y=[df.loc[selected_index, "speed"]],
+        mode="markers",
+        marker=dict(size=16, color="red"),
+        name="Current Point",
+        showlegend=False
+    ))
+
+    fig.update_layout(
+        uirevision="stay",
+        autosize=True,
+        margin=dict(l=0, r=0, t=0, b=0),
+        template="plotly_dark",
+        legend=dict(
+            orientation="h",
+            y=1.08,
+            x=.5,
+            xanchor="center",
+            bgcolor="rgba(0,0,0,0)",
+            borderwidth=0
+        ),
+    )
+    return fig
+
+
+# ----------------------------
+# Dash app
+# ----------------------------
+app = Dash(__name__)
+
+app.index_string = """
+<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>
+            {%config%}
+            {%scripts%}
+            {%renderer%}
+        </footer>
+    </body>
+</html>
+"""
+
+app.layout = html.Div(
+    [
+        html.H1("GPS Debugger", title="GPS Debugger", className="title"),
+        dcc.Graph(
+            id="map", className="graph-top", clear_on_unhover=False,
+            figure=make_map(0), config={"responsive": True}
+        ),
+        dcc.Graph(
+            id="graph", className="graph-bottom", clear_on_unhover=False,
+            figure=make_graph(0), config={"responsive": True}
+        ),
+    ],
+    id="main-container",
+)
+
+
+# Hover line graph -> sync map + graph marker
+@app.callback(
+    Output("map", "figure"),
+    Output("graph", "figure"),
+    Input("graph", "hoverData"),
+    State("map", "figure"),
+    State("graph", "figure")
+)
+def sync(hover, map_fig, graph_fig):
+
+    idx = 0
+    if hover and "points" in hover:
+        t = hover["points"][0]["x"]
+        idx = (df["time"] - t).abs().idxmin()
+
+    # --- PATCH ONLY MARKER ON MAP ---
+    map_patch = Patch()
+    map_patch["data"][1]["lat"] = [df.loc[idx, "lat"]]
+    map_patch["data"][1]["lon"] = [df.loc[idx, "lon"]]
+
+    # --- PATCH ONLY GRAPH MARKER ---
+    graph_patch = Patch()
+    graph_patch["data"][1]["x"] = [df.loc[idx, "time"]]
+    graph_patch["data"][1]["y"] = [df.loc[idx, "speed"]]
+
+    return map_patch, graph_patch
+
+
+# ----------------------------
+# Run
+# ----------------------------
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8050, debug=True)
+    print("run")
+    # app.run(debug=True)
