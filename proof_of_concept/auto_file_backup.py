@@ -13,13 +13,21 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.http import MediaFileUpload
 from googleapiclient.discovery import build, Resource
 
-from time import perf_counter
 from types import NoneType
+from time import time
 import typing as tp
+import shutil
+import math
 import os
 
+from hud_lib import latlon_to_meters
+
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-SOURCE_DIR: str = "/home/nilusink/logs"
+SOURCE_DIR: str = "./logs"
+PROCESSED_DIR: str = "./logs/processed"
+
+if not os.path.exists(PROCESSED_DIR):
+    os.mkdir(PROCESSED_DIR)
 
 
 class FileInfo(tp.TypedDict):
@@ -113,18 +121,62 @@ def main() -> None:
     api.auth().start_service()
 
     # compare files to drive
-    local_files = os.listdir(SOURCE_DIR)
+    local_files = [
+        f for f in os.listdir(SOURCE_DIR) if
+       os.path.isfile(os.path.join(SOURCE_DIR, f))
+    ]
     remote_files = [f["name"] for f in api.get_files()]
 
     diff = set(local_files) - set(remote_files)
 
+    # move all files that exist in remote to processed dir
+    for file in set(local_files) - diff:
+        shutil.move(f"{SOURCE_DIR}/{file}", f"{PROCESSED_DIR}/{file}")
+
     # upload files not present yet and older than 5 minutes
-    now = perf_counter()
+    print("not uploaded: ", diff)
+
+    now = time()
     for file in diff:
-        file_time = float(file.lstrip("gps_debug_").rstrip(".csv"))
+        try:
+            file_time = float(file.lstrip("gps_debug_").rstrip(".csv"))
+
+        except ValueError:
+            print("file name error: ", file)
+            shutil.move(f"{SOURCE_DIR}/{file}", f"{PROCESSED_DIR}/{file}")
+            continue
 
         if now - file_time > 60*5:
-            print("uploading: ", file, ", time: ", now-file_time)
+            # check gps distance > 1km
+            with open(f"{SOURCE_DIR}/{file}", "r") as f:
+                lines = f.readlines()
+
+                last_line: tuple[float, float] | None = None
+                distance = 0
+                for line in lines:
+                    try:
+                        _, m, lat, lon, *_ = line.split(",")
+
+                        if float(m) > 1:
+                            if not last_line:
+                                last_line: tuple[float, float] = float(lat), float(lon)
+
+                            else:
+                                lat, lon = float(lat), float(lon)
+                                diff = latlon_to_meters(*last_line, lat, lon)
+                                distance += math.sqrt(diff[0] * diff[0] + diff[1] * diff[1])
+                                last_line = lat, lon
+
+                    except ValueError:
+                        continue
+
+            if distance < 1000:
+                print(f"distance to small: {round(distance, 2)} m")
+                shutil.move(f"{SOURCE_DIR}/{file}", f"{PROCESSED_DIR}/{file}")
+                continue
+
+            print("uploading: ", file, ", time: ", now - file_time, "driven distance: ",
+                  round(distance / 1000, 2), " km")
             print(api.upload_file(os.path.join(SOURCE_DIR, file)))
 
         else:

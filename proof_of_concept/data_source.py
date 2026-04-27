@@ -8,9 +8,9 @@ Author:
 Nilusink
 """
 from multiprocessing import shared_memory, Event, Value
+from time import perf_counter, sleep, time as epoch_time
 from concurrent.futures import ThreadPoolExecutor
 from json import JSONDecodeError, loads
-from time import perf_counter, sleep
 from dataclasses import dataclass
 from traceback import print_exc
 import geopandas as gpd
@@ -25,8 +25,8 @@ from auto_file_backup import main as backup_files
 os.environ["OGR_INTERLEAVED_READING"] = "YES"
 
 # select GPS provider
-import gpsd
-# from dummy_gpsd import gpsd
+# import gpsd
+from dummy_gpsd import gpsd
 
 
 from hud_lib import road_t, speedcam_t, MAX_ROADS, MAX_CAMS, REQUEST_RADIUS, \
@@ -47,7 +47,7 @@ STREET_TYPES = [
     "service", "living_street"
 ]
 
-DEBUG_FILE = f"./logs/gps_debug_{perf_counter()}.csv"
+DEBUG_FILE = f"./logs/gps_debug_{epoch_time()}.csv"
 
 
 @dataclass(frozen=True)
@@ -440,7 +440,7 @@ def start_data_source(
 
         if vel > .1:
             curr_speed.value = vel * 3.6  # m/s to km/h
-            last_vel_update = perf_counter()
+            last_vel_update = t
 
         with open(DEBUG_FILE, "a") as f:
             f.write(f"{t},{packet.mode},{pos[0]},{pos[1]},{curr_speed.value},{curr_rot.value}\n")
@@ -492,8 +492,9 @@ def start_data_source(
         # and there is more than 10 minutes of drive data
         if last_vel_update - last_file_bup > 60*10 and now - last_vel_update > 30:
             # create new file
-            DEBUG_FILE = f"./logs/gps_debug_{now}.csv"
+            DEBUG_FILE = f"./logs/gps_debug_{epoch_time()}.csv"
             pool.submit(backup_files)
+            last_file_bup = now
 
         sleep(GPS_UPDATE_FREQ)
 

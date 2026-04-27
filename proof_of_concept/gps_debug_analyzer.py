@@ -7,11 +7,12 @@ csv analyzer
 Author:
 Nilusink
 """
-from dash import Dash, dcc, html, Input, Output, Patch, State
+from dash import Dash, dcc, html, Input, Output, Patch, State, ctx
 import plotly.graph_objects as go
+from datetime import datetime
 import pandas as pd
-# import numpy as np
 import os
+import re
 
 
 # FILEPATH = "./gps_buff.csv"
@@ -46,17 +47,14 @@ def compute_center_and_zoom(lat, lon):
     return center, zoom
 
 
-# root = tk.Tk()
-# root.withdraw()
-#
-# file_path = filedialog.askopenfilename(
-#     filetypes=[("debug CSV", "*.csv"), ("debug file", "*")],
-#     initialdir="./"
-# )
-
 files = []
 for file in os.listdir(FOLDER):
-    file_time = float(file.lstrip("gps_debug_").rstrip(".csv"))
+    try:
+        file_time = float(file.lstrip("gps_debug_").rstrip(".csv"))
+
+    except ValueError:
+        continue
+
     files.append((file_time, file))
 
 files = sorted(files, key=lambda x: x[0])
@@ -99,7 +97,7 @@ def make_map(selected_index=0):
         line=dict(width=3),
         marker=dict(size=7),
         name="Route",
-        hoverinfo="skip"
+        hovertemplate="<extra></extra>"
     ))
 
     # Current synced point
@@ -110,7 +108,9 @@ def make_map(selected_index=0):
         marker=dict(size=18, color="red"),
         name="Current Point",
         hovertemplate=(
-            f"t={df.loc[selected_index]}s"
+            f"{round(df.loc[selected_index, "speed"], 2)}km/h<br>"
+            f"{str(df.loc[selected_index, "time"]).split(".")[0]}min "
+            f"{round(float("0."+str(df.loc[selected_index, "time"]).split(".")[1])*60, 1)}s "
             "<extra></extra>"
         )
     ))
@@ -142,7 +142,8 @@ def make_graph(selected_index=0):
         x=df["time"],
         y=df["speed"],
         mode="lines",
-        name="Speed"
+        name="Speed",
+        hovertemplate="<extra></extra>"
     ))
 
     # Current synced point
@@ -152,7 +153,13 @@ def make_graph(selected_index=0):
         mode="markers",
         marker=dict(size=16, color="red"),
         name="Current Point",
-        showlegend=False
+        showlegend=False,
+        hovertemplate=(
+            f"{round(df.loc[selected_index, "speed"], 2)}km/h<br>"
+            f"{str(df.loc[selected_index, "time"]).split(".")[0]}min "
+            f"{round(float("0."+str(df.loc[selected_index, "time"]).split(".")[1])*60, 1)}s "
+            "<extra></extra>"
+        )
     ))
 
     fig.update_layout(
@@ -170,6 +177,32 @@ def make_graph(selected_index=0):
         ),
     )
     return fig
+
+
+def get_recording_files():
+    files = []
+    pattern = re.compile(r"gps_debug_(\d+(?:\.\d+)?)\.csv")
+
+    for file in os.listdir(FOLDER):
+        match = pattern.match(file)
+        if match:
+            ts = float(match.group(1))
+            dt = datetime.fromtimestamp(ts)
+
+            files.append({
+                "label": dt.strftime("%Y-%m-%d %H:%M"),
+                "value": os.path.join(FOLDER, file),
+                "sort_ts": ts
+            })
+
+    # newest first
+    files.sort(key=lambda x: x["sort_ts"], reverse=True)
+
+    # remove helper key
+    for f in files:
+        del f["sort_ts"]
+
+    return files
 
 
 # ----------------------------
@@ -200,6 +233,13 @@ app.index_string = """
 app.layout = html.Div(
     [
         html.H1("GPS Debugger", title="GPS Debugger", className="title"),
+        html.Label("Select recording:"),
+        dcc.Dropdown(
+            id="recording-dropdown",
+            options=get_recording_files(),
+            value=get_recording_files()[0]["value"] if get_recording_files() else None,
+            clearable=False
+        ),
         dcc.Graph(
             id="map", className="graph-top", clear_on_unhover=False,
             figure=make_map(0), config={"responsive": True}
@@ -213,30 +253,62 @@ app.layout = html.Div(
 )
 
 
+# refresh dropdown options
+# @app.callback(
+#     Output("recording-dropdown", "options"),
+#     Input("refresh-files", "n_intervals")
+# )
+# def refresh_dropdown(_):
+#     return get_recording_files()
+
+
 # Hover line graph -> sync map + graph marker
 @app.callback(
     Output("map", "figure"),
     Output("graph", "figure"),
     Input("graph", "hoverData"),
+    Input("map", "hoverData"),
     State("map", "figure"),
     State("graph", "figure")
 )
-def sync(hover, map_fig, graph_fig):
+def sync(graph_hover, map_hover, map_fig, graph_fig):
+
+    trigger = ctx.triggered_id
 
     idx = 0
-    if hover and "points" in hover:
-        t = hover["points"][0]["x"]
-        idx = (df["time"] - t).abs().idxmin()
+    if trigger == "graph":
+        # sync graph -> map
+        if graph_hover and "points" in graph_hover:
+            t = graph_hover["points"][0]["x"]
+            idx = (df["time"] - t).abs().idxmin()
+
+    elif trigger == "map":
+        # sync map -> graph
+        if map_hover and "points" in map_hover:
+            t = map_hover["points"][0]["lat"]
+            idx = (df["lat"] - t).abs().idxmin()
 
     # --- PATCH ONLY MARKER ON MAP ---
     map_patch = Patch()
     map_patch["data"][1]["lat"] = [df.loc[idx, "lat"]]
     map_patch["data"][1]["lon"] = [df.loc[idx, "lon"]]
+    map_patch["data"][1]["hovertemplate"] = (
+        f"{round(df.loc[idx, "speed"], 2)}km/h<br>"
+        f"{str(df.loc[idx, "time"]).split(".")[0]}min "
+        f"{round(float("0."+str(df.loc[idx, "time"]).split(".")[1])*60, 1)}s "
+        "<extra></extra>"
+    )
 
     # --- PATCH ONLY GRAPH MARKER ---
     graph_patch = Patch()
     graph_patch["data"][1]["x"] = [df.loc[idx, "time"]]
     graph_patch["data"][1]["y"] = [df.loc[idx, "speed"]]
+    graph_patch["data"][1]["hovertemplate"] = (
+        f"{round(df.loc[idx, "speed"], 2)}km/h<br>"
+        f"{str(df.loc[idx, "time"]).split(".")[0]}min "
+        f"{round(float("0."+str(df.loc[idx, "time"]).split(".")[1])*60, 1)}s "
+        "<extra></extra>"
+    )
 
     return map_patch, graph_patch
 
