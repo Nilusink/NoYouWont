@@ -292,9 +292,10 @@ def main():
 
                 if line.vmax > 0:
                     # if (line.vmax + 10) * 1.1 >= speed or line.priority == 0:
-                    if line.vmax * 1.12 >= speed:
+                    if line.vmax * 1.10 >= speed:
                         to_draw.append((p1, p2))
 
+                    # 3% speed tolerance & +50kmh for loosing your license
                     elif line.vmax * 1.03 + 50 < speed:
                         if line.priority == 0:
                             special.append((p1, p2))
@@ -607,9 +608,10 @@ def main():
             skip_update = False
             speed_text_color = WHITE
             if cam_critical:
+                # slow orange warn
                 if cam_critical[1] > crit_range*2:
                     speed_limit = cam_critical[0][2]
-                    if speed > speed_limit:
+                    if speed > speed_limit * 1.03:  # 3% speed tolerance
                         speed_text_color = cam_stationary
 
                     if n_loop % 6 < 3:
@@ -621,9 +623,10 @@ def main():
                             cam_stationary
                         )
 
+                # faster, thicker red warn
                 elif cam_critical[1] > crit_range:
                     speed_limit = cam_critical[0][2]
-                    if speed > speed_limit:
+                    if speed > speed_limit * 1.03:  # 3% speed tolerance
                         speed_text_color = sign_red
 
                     if n_loop % 4 < 2:
@@ -635,12 +638,13 @@ def main():
                             sign_red
                         )
 
+                # cam in 10s, big red warn / speed sign
                 else:
                     if n_loop % 3 < 2:
                         speed_limit = cam_critical[0][2]
 
                         # if speed > vmax, draw speed sign, else red rim
-                        if speed > speed_limit:
+                        if speed > speed_limit * 1.03:  # 3% speed tolerance
                             speed_text_color = sign_red
                             draw_speed_sign(display, speed_limit)
                             skip_update = True
