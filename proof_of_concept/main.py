@@ -32,9 +32,10 @@ shadow_color = Color().from_1(.4, .3, .2).get_bgr565()
 special_color = Color().from_1(1, .6, .6).get_bgr565()
 sign_red = Color().from_1(1, 0, 0).get_bgr565()
 
-cam_cluster = WHITE
 cam_stationary = Color().from_1(.8, .4, 0).get_bgr565()
 cam_mobile = Color().from_1(1, 0, 0).get_bgr565()
+cam_redlight = Color().from_hex("C29E4A").get_bgr565()
+
 CONN_STATE_NET: np.uint64 = np.uint32(0b0001)
 CONN_STATE_GPS: np.uint64 = np.uint32(0b0010)
 
@@ -317,9 +318,10 @@ def main():
 
             # calculate cams
             if max_speed > 50:
-                updated_cluster_cams.clear()
                 updated_stationary_cams.clear()
                 updated_mobile_cams.clear()
+                updated_redlight_cams.clear()
+                updated_unknowns.clear()
 
                 for i in range(num_cams.value):
                     cam = cams[i]
@@ -342,14 +344,18 @@ def main():
                     if m.sqrt(x*x + y*y) > radius*1.6:
                         continue
 
-                    if cam.is_cluster:
-                        updated_cluster_cams.append(pos)
+                    if cam.type == 2 or cam.type == 11 or cam.type == 111:
+                        updated_redlight_cams.append(pos)
 
-                    elif cam.type <= 10:
+                    elif cam.type <= 12:
                         updated_mobile_cams.append(pos)
 
                     elif cam.type >= 100:
                         updated_stationary_cams.append(pos)
+
+                    else:
+                        # unknowns, probably construction site / accident
+                        updated_unknowns.append(pos)
 
                 # print(f"{i=}")
                 # print(f"{len(cluster_cams)=}")
@@ -444,16 +450,19 @@ def main():
     ocenter = Vec2()
     max_speed = 0
     radius = 0
-    lat = 0
-    lon = 0
     latc = 0
     lonc = 0
-    cluster_cams = []
-    updated_cluster_cams = []
+
     stationary_cams = []
     updated_stationary_cams = []
     mobile_cams = []
     updated_mobile_cams = []
+    redlight_cams = []
+    updated_redlight_cams = []
+
+    unknowns = []
+    updated_unknowns = []
+
     pivot = Vec2()
     n_loop = 0
     while True:
@@ -476,11 +485,11 @@ def main():
             # zoom out if GPS signal is lost
             if flags & CONN_STATE_GPS:
                 radius = get_radius(speed, 500)
+                # radius = 7000
 
             else:
                 radius = 3000
 
-            # radius = 15000
             rot = normalize_angle(-m.pi / 2 - curr_rot.value)
             meter_to_pixel_factor = (display.width / (2 * radius))
 
@@ -491,9 +500,10 @@ def main():
             if not roads_updating:
                 np.copyto(current_map_buffer, map_update_buffer)
                 latc, lonc = lat, lon
-                cluster_cams = updated_cluster_cams.copy()
                 stationary_cams = updated_stationary_cams.copy()
                 mobile_cams = updated_mobile_cams.copy()
+                redlight_cams = updated_redlight_cams.copy()
+                unknowns = updated_unknowns.copy()
                 pool.submit(update_roads)
 
             # draw roads from buffer
@@ -513,6 +523,14 @@ def main():
                 #         cam_cluster
                 #     )
 
+            for cam in redlight_cams:
+                display.draw_filled_circle(
+                    cam[0],
+                    cam[1],
+                    int(2 * DOT_SIZE / 3),
+                    cam_redlight
+                )
+
             if n_loop % 6 < 3:
                 for cam in stationary_cams:
                     display.draw_filled_circle(
@@ -529,6 +547,14 @@ def main():
                         cam[1],
                         DOT_SIZE,
                         cam_mobile
+                    )
+
+                for cam in unknowns:
+                    display.draw_filled_circle(
+                        cam[0],
+                        cam[1],
+                        int(2 * DOT_SIZE / 3),
+                        cam_redlight
                     )
 
             # calculate driven since last map update

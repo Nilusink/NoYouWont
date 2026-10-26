@@ -45,7 +45,7 @@ class GPSD:
         with open(FILE, "r") as f:
             raw_data = f.readlines()[:-1]
 
-        self.__i = 3_000
+        self.__i = 12_500
         self.data: list[GPSDataLine] = []
         for line in raw_data:
             time, mode, lat, lon, speed, angle = line.split(",")

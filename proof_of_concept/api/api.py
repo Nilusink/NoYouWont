@@ -1,15 +1,24 @@
 from math import ceil, cos, floor, isfinite, radians
-from time import monotonic
+from time import monotonic, perf_counter
 import requests
 import logging
 import asyncio
 import json
 
-from .const import (
-    TYPE_TRAILER,
-    TYPE_MOBILE, TYPE_FIXED,
-    CODE_LABELS, HAZARD_TYPES
-)
+if __name__ == "__main__":
+    from const import (
+        TYPE_TRAILER,
+        TYPE_MOBILE, TYPE_FIXED,
+        CODE_LABELS, HAZARD_TYPES
+    )
+
+else:
+    from .const import (
+        TYPE_TRAILER,
+        TYPE_MOBILE, TYPE_FIXED,
+        CODE_LABELS, HAZARD_TYPES
+    )
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -300,12 +309,15 @@ def main():
     #     types=TYPE_MOBILE + TYPE_TRAILER + TYPE_FIXED
     # ))
 
+    from time import perf_counter
+    start = perf_counter()
     res = loop.run_until_complete(bapi.getArea(
         47.2264838,
         10.8167981,
-        20_000,
-        ['ts', 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 115, 117, 114, 0, 1, 2, 3, 4, 5, 6],
+        5_000,
+        TYPE_MOBILE + TYPE_TRAILER + TYPE_FIXED,
     ))
+    end = perf_counter()
 
     # print(json.dumps(res, indent=4))
 
@@ -317,6 +329,7 @@ def main():
             print(f"{blitzer["type"]}: {blitzer["counter"]}")
 
     print(len(res))
+    print(f"took {round(1000 * (end-start), 3)}ms")
 
 if __name__ == "__main__":
     # asyncio.run(main())

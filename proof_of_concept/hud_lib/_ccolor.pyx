@@ -159,6 +159,11 @@ cdef class Color:
         cdef c = Color()
         c.set_rgba255(r, g, b, a)
         return c
+
+    cpdef from_hex(self, str hex):
+        cdef c = Color()
+        c.set_rgb255(int(hex[:2], 16), int(hex[2:4], 16), int(hex[4:], 16))
+        return c
     # endregion
 
     # region utility
