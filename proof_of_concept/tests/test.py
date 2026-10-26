@@ -1,9 +1,11 @@
+from time import sleep
 import math as m
 import requests
 import json
+import re
 
 
-lat, lon = 47.2692, 11.4041
+lat, lon = 47.2534446,11.3498165
 radius = 20000  # 5 km
 
 
@@ -41,25 +43,43 @@ get_type = MOBILE_TYPE + "," + FIXED_TYPE
 bbox = "47.2200,10.8200,46.8500,11.0800"
 
 
-URL = f"https://cdn2.atudo.net/api/1.0/vl.php?type={get_type}&box=47.24221577256205,11.364455837603446,47.29618422743795,11.443744162396554"
+# URL = f"https://cdn2.atudo.net/api/1.0/vl.php?type={get_type}&box=47.24221577256205,11.364455837603446,47.29618422743795,11.443744162396554"
+URL = (
+   'https://cdn2.atudo.net/api/1.0/vl.php'
+   '?clusters=0'
+   '&type=0,1,2,3,4,5,6,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115'
+   '&box='
+)
 
 
-data = requests.get(URL)
-print(json.dumps(data.json(), indent=4))
-data = data.json()
+R = 5000
+i = 1
+while True:
+    data = requests.get(URL + ",".join([str(v) for v in bounding_box(lat, lon, R*i)]))
+    data = data.json()
+    i += 1
 
-rtypes = []
+    rtypes = []
 
-print(len(data["pois"]))
+    with open("cam_data.json", "w") as f:
+        json.dump(data, f, indent=4)
 
-with open("cam_data.json", "w") as f:
-    json.dump(data, f, indent=4)
+    cluster = 0
+    n_cluster_cams = 0
+    for point in data["pois"]:
+        # if point["type"] != '1':
+        #     print(json.dumps(point, indent=4))
 
-for point in data["pois"]:
-    if point["type"] != '1':
-        print(json.dumps(point, indent=4))
+        if point["type"] not in rtypes:
+            rtypes.append(point["type"])
 
-    if point["type"] not in rtypes:
-        rtypes.append(point["type"])
+        if "count_cluster" in point["info"]:
+            cluster += 1
+            n_cluster_cams += int(re.findall("\d+", point["info"])[0])
 
-print(rtypes)
+    print(rtypes)
+
+    print(len(data["pois"]))
+    print(cluster, n_cluster_cams)
+
+    sleep(2)

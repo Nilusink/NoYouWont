@@ -1,10 +1,11 @@
 from multiprocessing import shared_memory, Event, Value, Process, Pipe
 from concurrent.futures import ThreadPoolExecutor
 from time import sleep, perf_counter
+from PIL import Image
 import numpy as np
 import math as m
-import os
 import ctypes
+import os
 
 from numpy.random import normal
 
@@ -13,10 +14,11 @@ from hud_lib import MAX_CAMS, MAX_ROADS, road_t, speedcam_t, SCREEN_RADIUS, \
     Vec2, Color, normalize_angle, point_in_triangle
 from data_source import start_data_source
 from display_driver import DisplayDriver
+from proof_of_concept.gps_debug_analyzer import file_path
 
-
+EMULATE_DISPLAY: bool = True
 MAP_INTERVAL: float = 2
-DOT_SIZE: int = 4
+DOT_SIZE: int = 10
 BUFFER_SIZE_FAC = 1.5
 CAM_WARN_RANGE_SECS = 60
 CAM_CRIT_RANGE_SECS = 10
@@ -36,6 +38,25 @@ sign_red = Color().from_1(1, 0, 0).get_bgr565()
 cam_cluster = WHITE
 cam_stationary = Color().from_1(.8, .4, 0).get_bgr565()
 cam_mobile = Color().from_1(1, 0, 0).get_bgr565()
+CONN_STATE_NET: np.uint64 = np.uint32(0b0001)
+CONN_STATE_GPS: np.uint64 = np.uint32(0b0010)
+
+
+def load_image(path: str) -> np.ndarray:
+    img = np.array(Image.open(path).convert("RGB"), dtype=np.uint16)
+
+    # convert to bgr565
+    return (
+        (img[..., 2] >> 3) |
+        ((img[..., 1] >> 2) << 5) |
+        ((img[..., 0] >> 3) << 11)
+    )
+
+
+CONN_ICON = load_image("icons/link.png")
+NCONN_ICON = load_image("icons/plug-connection.png")
+GPS_ICON = load_image("icons/marker.png")
+NGPS_ICON = load_image("icons/compass-slash.png")
 
 
 def draw_speed_sign(d: DisplayDriver, speed_limit: int) -> None:
@@ -70,8 +91,93 @@ def draw_speed_sign(d: DisplayDriver, speed_limit: int) -> None:
     )
 
 
+def draw_ui(
+        d: DisplayDriver,
+        cam_critical: int,
+        speed: int,
+        speed_color,
+        gps_status: bool,
+        network_status: bool
+) -> None:
+    """
+    Draws little icons
+
+    Args:
+        d: display driver
+        cam_critical: speed of critical cam, 0 if none
+        speed: speed in km/h
+        speed_color: color of speed indicator
+        gps_status: is gps connected
+        network_status: is network connected
+
+    """
+    # draw speed limit
+    if cam_critical:
+        # speed limit 255 == -1 == variable cam
+        d.draw_digits_big(
+            d.width // 2,
+            int(d.height * .1),
+            "v" if cam_critical == 255 else str(cam_critical),
+            WHITE,
+            center_text=True,
+            direct=True,
+            font_size=48,
+            background=True,
+            background_color=BLACK,
+            background_margin=2
+        )
+
+    # draw speed
+    d.draw_digits_big(
+        d.width // 2,
+        int(d.height * .9),
+        str(int(speed)),
+        speed_color,
+        center_text=True,
+        direct=True,
+        font_size=48,
+        background=True,
+        background_color=BLACK,
+        background_margin=2
+    )
+
+    # draw connection status
+    # d.draw_rect(
+    #     0,
+    #     d.height // 3 - 5,
+    #     d.width // 5,  # 48
+    #     d.height // 3 + 10,
+    #     Color().from_1(.1, .1, .1).get_bgr565(),
+    #     direct=True
+    # )
+    d.draw_image(
+        28, 2 * d.height // 5,
+        CONN_ICON if network_status else NCONN_ICON,
+        direct=True,
+        center=True
+    )
+    d.draw_image(
+        28, 3 * d.height // 5,
+        GPS_ICON if gps_status else NGPS_ICON,
+        direct=True,
+        center=True
+    )
+
+
 def main():
-    display = DisplayDriver(buffer_size_factor=BUFFER_SIZE_FAC)
+    if EMULATE_DISPLAY:
+        display = DisplayDriver(
+            buffer_size_factor=BUFFER_SIZE_FAC,
+            device_path="./disp_fb.bin",
+            emulate_device_buffer=True
+        )
+
+    else:
+        display = DisplayDriver(
+            buffer_size_factor=BUFFER_SIZE_FAC
+        )
+
+    # populate icons
 
     # create fancy process stuff
     parent_com, child_com = Pipe()
@@ -97,6 +203,8 @@ def main():
 
     num_roads = Value("I", 0, lock=False)
     num_cams = Value("I", 0, lock=False)
+    conn_state = Value("I", 0, lock=False)
+    # conn state: 0=network, 1=GPS
 
     curr_lat = Value("f", 0, lock=True)
     curr_lon = Value("f", 0, lock=True)
@@ -114,6 +222,7 @@ def main():
         "cams_memory_name": cam_shm.name,
         "n_roads": num_roads,
         "n_cams": num_cams,
+        "conn_state": conn_state,
         "curr_lat": curr_lat,
         "curr_lon": curr_lon,
         "curr_rot": curr_rot,
@@ -214,6 +323,7 @@ def main():
                 updated_cluster_cams.clear()
                 updated_stationary_cams.clear()
                 updated_mobile_cams.clear()
+
                 for i in range(num_cams.value):
                     cam = cams[i]
 
@@ -243,6 +353,11 @@ def main():
 
                     elif cam.type >= 100:
                         updated_stationary_cams.append(pos)
+
+                # print(f"{i=}")
+                # print(f"{len(cluster_cams)=}")
+                # print(f"{len(stationary_cams)=}")
+                # print(f"{len(mobile_cams)=}")
 
             # draw roads
             for line in to_draw:
@@ -347,9 +462,11 @@ def main():
     while True:
         try:
             start = perf_counter()
+
             # wait if either of the data is being written
             while roads_event.is_set():
                 sleep(.01)
+
             while cams_event.is_set():
                 sleep(.01)
 
@@ -359,6 +476,7 @@ def main():
                 max_speed = speed
 
             radius = get_radius(speed, 500)
+            # radius = 15000
             rot = normalize_angle(-m.pi / 2 - curr_rot.value)
             meter_to_pixel_factor = (display.width / (2 * radius))
 
@@ -379,14 +497,17 @@ def main():
             display.transmit_buffer(current_map_buffer)
 
             # draw speed cams
-            if n_loop % 12 < 6:
-                for cam in cluster_cams:
-                    display.draw_filled_circle(
-                        cam[0],
-                        cam[1],
-                        DOT_SIZE * 2,
-                        cam_cluster
-                    )
+            # print(f"{len(cluster_cams)=}")
+            # print(f"{len(stationary_cams)=}")
+            # print(f"{len(mobile_cams)=}")
+            # if n_loop % 12 < 6:
+                # for cam in cluster_cams:
+                #     display.draw_filled_circle(
+                #         cam[0],
+                #         cam[1],
+                #         DOT_SIZE * 2,
+                #         cam_cluster
+                #     )
 
             if n_loop % 6 < 3:
                 for cam in stationary_cams:
@@ -511,34 +632,20 @@ def main():
                     angle_rad=-rot
                 )
 
-                # draw speed limit
-                if cam_critical:
-                    display.draw_digits_big(
-                        display.width // 2,
-                        int(display.height * .1),
-                        str(int(cam_critical[0][2])),
-                        WHITE,
-                        center_text=True,
-                        direct=True,
-                        font_size=48,
-                        background=True,
-                        background_color=BLACK,
-                        background_margin=2
-                    )
-
-                # draw speed
-                display.draw_digits_big(
-                    display.width // 2,
-                    int(display.height * .9),
-                    str(int(speed)),
+                # draw user interface
+                draw_ui(
+                    display,
+                    int(cam_critical[0][2]) if cam_critical else 0,
+                    speed,
                     speed_text_color,
-                    center_text=True,
-                    direct=True,
-                    font_size=48,
-                    background=True,
-                    background_color=BLACK,
-                    background_margin=2
+                    conn_state & CONN_STATE_GPS,
+                    conn_state & CONN_STATE_NET,
                 )
+
+                # check for too-fast updates
+                end = perf_counter()
+                if (end - start) < .2:
+                    sleep(.2 - (end-start))
 
             # print child process output
             while parent_com.poll(0):

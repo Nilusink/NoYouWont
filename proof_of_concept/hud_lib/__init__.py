@@ -6,4 +6,5 @@ from ._cfuncs import latlon_to_meters, meters_to_pixels, offset_center, \
 from ._ccolor import Color
 from ._cvectors import Vec2, normalize_angle
 from ._draw_methods import draw_line, draw_lines, draw_circle, draw_filled_circle, \
-    draw_char, draw_char_48, draw_char_96, draw_rect
+    draw_char, draw_char_48, draw_char_96, draw_rect, \
+    draw_image

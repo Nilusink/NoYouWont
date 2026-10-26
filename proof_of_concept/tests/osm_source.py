@@ -35,12 +35,41 @@ def bounding_box(lat_center, lon_center, radius_m):
     return lon_min, lat_min, lon_max, lat_max
 
 
+# roads = gpd.read_file(
+#     "austria.gpkg",
+#     layer="gis_osm_roads_free",
+#     # engine="pyogrio",
+# )
+# print(roads.columns)
+# print(roads.head())
+#
+# # map to OSM standard
+# roads["highway"] = roads["fclass"]
+#
+# roads["other_tags"] = (
+#     '"access"=>"unknown",'
+#     '"motor_vehicle"=>"unknown",'
+#     '"maxspeed:type"=>"'
+#     + roads["maxspeed"].fillna("unknown").astype(str)
+#     + '"'
+# )
+#
+# roads.pop("fclass")
+# roads.pop("maxspeed")
+#
+# roads.to_file("roads_europe.gpkg", layer="lines", driver="GPKG")
+# exit()
+
 roads = gpd.read_file(
-    "roads.gpkg",
+    "roads_europe.gpkg",
     layer="lines",
     engine="pyogrio",
     bbox=bounding_box(lat, lon, radius)
 )
+
+# print(sorted(roads["fclass"].unique()))
+# print(sorted(roads["maxspeed"].unique()))
+
 # roads.to_parquet("roads.parquet")
 # exit(0)
 print("loaded roads")

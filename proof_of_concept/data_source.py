@@ -14,12 +14,13 @@ from json import JSONDecodeError, loads
 from dataclasses import dataclass
 from traceback import print_exc
 import geopandas as gpd
+import numpy as np
 import math as m
 import requests
 import ctypes
 import os
 
-from auto_file_backup import main as backup_files
+# from auto_file_backup import main as backup_files
 
 
 os.environ["OGR_INTERLEAVED_READING"] = "YES"
@@ -48,6 +49,9 @@ STREET_TYPES = [
 ]
 
 DEBUG_FILE = f"./logs/gps_debug_{epoch_time()}.csv"
+
+CONN_STATE_NET: np.uint64 = np.uint32(0b0001)
+CONN_STATE_GPS: np.uint64 = np.uint32(0b0010)
 
 
 @dataclass(frozen=True)
@@ -148,6 +152,7 @@ def start_data_source(
         cams_memory_name: str,
         n_roads: Value,
         n_cams: Value,
+        conn_state: Value,
         curr_lat: Value,
         curr_lon: Value,
         curr_rot: Value,
@@ -199,7 +204,7 @@ def start_data_source(
 
     # start file backup
     comm.send("starting file backup")
-    pool.submit(backup_files)
+    # pool.submit(backup_files)
 
     pos_cache = (position_point_t * 3)()
     last_vel_update = d_start
@@ -220,7 +225,7 @@ def start_data_source(
         # get data from atudo
         get_type = MOBILE_TYPE + "," + FIXED_TYPE
         bbox = ",".join(
-            [str(v) for v in bounding_box(pos[0], pos[1], REQUEST_RADIUS).bbox]
+            [str(v) for v in bounding_box(pos[0], pos[1], REQUEST_RADIUS//2).bbox]
         )
 
         url = atudo_url(get_type, bbox)
@@ -230,10 +235,19 @@ def start_data_source(
         while True:
             try:
                 comm.send(f"requesting cams")
+                comm.send(f"{pos=}")
+                comm.send(f"{url=}")
                 raw_data = requests.get(url, timeout=REQUEST_TIMEOUT)
+
+                # set conn state to working
+                conn_state.value |= CONN_STATE_NET
 
             except requests.exceptions.Timeout:
                 comm.send("cam timeout")
+
+                # set network state to false
+                conn_state.value &= ~CONN_STATE_NET
+
                 # wait for 10 secs to not spam the api
                 sleep(10)
                 continue
@@ -296,7 +310,7 @@ def start_data_source(
 
         n_cams.value = length
         set_cams_event.clear()
-        comm.send(f"cams took {perf_counter() - start} to copy")
+        comm.send(f"cams took {perf_counter() - start} to copy, n: {length}")
         cams_updating = False
 
     def _update_roads() -> None:
@@ -311,7 +325,7 @@ def start_data_source(
             "roads_europe.gpkg",
             layer="lines",
             engine="pyogrio",
-            bbox=bounding_box(pos[0], pos[1], REQUEST_RADIUS).ibbox,
+            bbox=bounding_box(pos[0], pos[1], ROADS_REQUEST_RADIUS).ibbox,
         )
         comm.send(f"loading took {perf_counter()-start:.1f}s")
 
@@ -417,7 +431,13 @@ def start_data_source(
         if packet.mode < 2:
             with open(DEBUG_FILE, "a") as f:
                 f.write(f"{t},{packet.mode},,,,\n")
+
+            # set GPS state to false
+            conn_state.value &= ~CONN_STATE_GPS
             return
+
+        # set GPS state to true
+        conn_state.value |= CONN_STATE_GPS
 
         pos = packet.lat, packet.lon
 
@@ -493,7 +513,7 @@ def start_data_source(
         if last_vel_update - last_file_bup > 60*10 and now - last_vel_update > 30:
             # create new file
             DEBUG_FILE = f"./logs/gps_debug_{epoch_time()}.csv"
-            pool.submit(backup_files)
+            # pool.submit(backup_files)
             last_file_bup = now
 
         sleep(GPS_UPDATE_FREQ)

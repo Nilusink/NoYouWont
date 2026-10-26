@@ -12,11 +12,11 @@ SCREEN_RADIUS = 120
 MAX_ROADS = 150_000
 MAX_CAMS = 2000
 
-REQUEST_RADIUS = 15_000
-ROADS_REQUEST_RADIUS = 10_000  # if 15km from last request, = 5km before running out
+REQUEST_RADIUS = 5_000
+ROADS_REQUEST_RADIUS = 15_000  # if 15km from last request, = 5km before running out
 REQUEST_TIMEOUT = 25
 
-CAMS_UPDATE_FREQ = 60
+CAMS_UPDATE_FREQ = 30
 GPS_UPDATE_FREQ = .1
 
 ROAD_TYPES: dict[str, int] = {

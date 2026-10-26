@@ -45,10 +45,10 @@ class GPSD:
         with open(FILE, "r") as f:
             raw_data = f.readlines()[:-1]
 
-        self.__i = 0
+        self.__i = 12150
         self.data: list[GPSDataLine] = []
         for line in raw_data:
-            mode, lat, lon, speed, angle = line.split(",")
+            time, mode, lat, lon, speed, angle = line.split(",")
             try:
                 s = float(speed)
                 a = float(angle)

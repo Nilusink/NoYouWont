@@ -8,11 +8,13 @@ Author:
 Nilusink
 """
 from hud_lib import Color, draw_lines, draw_line, draw_circle, draw_filled_circle, \
-    draw_char, draw_char_48, draw_char_96, draw_rect
+    draw_char, draw_char_48, draw_char_96, draw_rect, \
+    draw_image
 from threading import Lock
 import typing as tp
 import numpy as np
 import mmap
+import os
 
 
 def rgb255_to_bgr565(r, g, b):
@@ -126,10 +128,27 @@ class DisplayDriver:
     def __init__(
             self,
             device_path: str = "/dev/fb1",
-            buffer_size_factor: float = 1
+            buffer_size_factor: float = 1,
+            emulate_device_buffer: bool = True
     ) -> None:
-        fb = open(device_path, "r+b")
         fb_size = self._width * self._height * (self._bpp // 8)
+        self.__e_file = ...
+
+        if emulate_device_buffer:
+            exists = os.path.exists(device_path)
+
+            # truncate on first open
+            if not exists:
+                self.__e_file = open(device_path, "w+b")
+                self.__e_file.truncate(fb_size)
+
+            else:
+                self.__e_file = open(device_path, "r+b")
+
+            fb = self.__e_file
+
+        else:
+            fb = open(device_path, "r+b")
 
         self._buffer_w = int(self._width * buffer_size_factor)
         self._buffer_h = int(self._height * buffer_size_factor)
@@ -278,6 +297,53 @@ class DisplayDriver:
         w = self._width if direct else self._buffer_w
         h = self._height if direct else self._buffer_h
         draw_rect(buf, w, h, x, y, width, height, color)
+
+        if to_buffer is None:
+            self._b_lock.release()
+
+    def draw_image(
+            self,
+            x: int, y: int,
+            image: np.ndarray,
+            to_buffer: np.ndarray = None,
+            direct: bool = False,
+            center: bool = False
+    ) -> None:
+        if direct:
+            to_buffer = self._fb16
+
+        buf = to_buffer if to_buffer is not None else self._buffer16
+
+        if to_buffer is None:
+            self._b_lock.acquire()
+
+        w = self._width if direct else self._buffer_w
+        # h = self._height if direct else self._buffer_h
+
+        shape = image.shape
+        if len(shape) == 2:
+            im_w, im_h = shape
+
+        else:
+            raise RuntimeError(f"Invalid shape: {shape}")
+
+        if center:
+            x -= im_w / 2
+            y -= im_h / 2
+
+        draw_image(
+            buf,
+            image,
+            w,
+            x, y,
+            im_w, im_h
+        )
+
+        # for row in range(im_h):
+        #     dst_start = int((y + row) * w + x)
+        #     dst_end = int(dst_start + im_w)
+        #
+        #     buf[dst_start:dst_end] = image[row]
 
         if to_buffer is None:
             self._b_lock.release()

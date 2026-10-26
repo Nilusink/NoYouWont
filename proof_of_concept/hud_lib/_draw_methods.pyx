@@ -246,3 +246,25 @@ cpdef void draw_char_96(
             if b & 0x04: fb[fb_row + px + 5] = color
             if b & 0x02: fb[fb_row + px + 6] = color
             if b & 0x01: fb[fb_row + px + 7] = color
+
+
+cpdef void draw_image(
+        uint16_t[:] fb,
+        uint16_t[:, :] image,
+        int buff_width,
+        int x, int y,
+        int im_w, int im_h
+):
+    cdef int row, dst_start, dst_end, col
+    cdef uint16_t pixel
+
+    for row in range(im_h):
+        dst_start = (y + row) * buff_width + x
+        # dst_end = dst_start + im_w
+
+        for col in range(im_w):
+            pixel = image[row, col]
+
+            if pixel:
+                fb[dst_start+col] = pixel
+
