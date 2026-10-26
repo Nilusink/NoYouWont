@@ -5,16 +5,13 @@ from PIL import Image
 import numpy as np
 import math as m
 import ctypes
-import os
-
-from numpy.random import normal
 
 from hud_lib import MAX_CAMS, MAX_ROADS, road_t, speedcam_t, SCREEN_RADIUS, \
     latlon_to_meters, meters_to_pixels, get_detail, get_radius, \
-    Vec2, Color, normalize_angle, point_in_triangle
+    Vec2, Color, normalize_angle
 from data_source import start_data_source
 from display_driver import DisplayDriver
-from proof_of_concept.gps_debug_analyzer import file_path
+
 
 EMULATE_DISPLAY: bool = True
 MAP_INTERVAL: float = 2
@@ -203,7 +200,7 @@ def main():
 
     num_roads = Value("I", 0, lock=False)
     num_cams = Value("I", 0, lock=False)
-    conn_state = Value("I", 0, lock=False)
+    flags = Value("I", 0, lock=False)
     # conn state: 0=network, 1=GPS
 
     curr_lat = Value("f", 0, lock=True)
@@ -222,7 +219,7 @@ def main():
         "cams_memory_name": cam_shm.name,
         "n_roads": num_roads,
         "n_cams": num_cams,
-        "conn_state": conn_state,
+        "flags": flags,
         "curr_lat": curr_lat,
         "curr_lon": curr_lon,
         "curr_rot": curr_rot,
@@ -475,7 +472,14 @@ def main():
             if speed > max_speed:
                 max_speed = speed
 
-            radius = get_radius(speed, 500)
+
+            # zoom out if GPS signal is lost
+            if flags & CONN_STATE_GPS:
+                radius = get_radius(speed, 500)
+
+            else:
+                radius = 3000
+
             # radius = 15000
             rot = normalize_angle(-m.pi / 2 - curr_rot.value)
             meter_to_pixel_factor = (display.width / (2 * radius))
@@ -638,8 +642,8 @@ def main():
                     int(cam_critical[0][2]) if cam_critical else 0,
                     speed,
                     speed_text_color,
-                    conn_state & CONN_STATE_GPS,
-                    conn_state & CONN_STATE_NET,
+                    flags & CONN_STATE_GPS,
+                    flags & CONN_STATE_NET,
                 )
 
                 # check for too-fast updates

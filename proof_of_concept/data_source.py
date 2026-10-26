@@ -17,6 +17,7 @@ import geopandas as gpd
 import numpy as np
 import math as m
 import requests
+import asyncio
 import ctypes
 import os
 
@@ -34,6 +35,9 @@ from hud_lib import road_t, speedcam_t, MAX_ROADS, MAX_CAMS, REQUEST_RADIUS, \
     REQUEST_TIMEOUT, CAMS_UPDATE_FREQ, ROADS_REQUEST_RADIUS, SPEED_TYPES, \
     ROAD_TYPES, position_point_t, GPS_UPDATE_FREQ, latlon_to_meters, \
     Vec2
+
+from api import BlitzerdeAPI, TYPE_MOBILE, TYPE_TRAILER, TYPE_FIXED
+
 
 
 # cam constants
@@ -152,7 +156,7 @@ def start_data_source(
         cams_memory_name: str,
         n_roads: Value,
         n_cams: Value,
-        conn_state: Value,
+        flags: Value,
         curr_lat: Value,
         curr_lon: Value,
         curr_rot: Value,
@@ -176,6 +180,13 @@ def start_data_source(
 
     # setup gps
     gpsd.connect()
+
+    # setup Blitzer.de API
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    bapi = BlitzerdeAPI(loop)
+
 
     # wait for actual data
     pos = (0, 0)  # gps position as coordinates
@@ -223,60 +234,71 @@ def start_data_source(
         cams_updating = True
 
         # get data from atudo
-        get_type = MOBILE_TYPE + "," + FIXED_TYPE
-        bbox = ",".join(
-            [str(v) for v in bounding_box(pos[0], pos[1], REQUEST_RADIUS//2).bbox]
-        )
+        # get_type = MOBILE_TYPE + "," + FIXED_TYPE
+        # bbox = ",".join(
+        #     [str(v) for v in bounding_box(pos[0], pos[1], REQUEST_RADIUS//2).bbox]
+        # )
 
-        url = atudo_url(get_type, bbox)
+        # url = atudo_url(get_type, bbox)
+
+        get_type = TYPE_TRAILER + TYPE_FIXED + TYPE_MOBILE
 
         # try and get data until its working
         data = {}
         while True:
             try:
                 comm.send(f"requesting cams")
-                comm.send(f"{pos=}")
-                comm.send(f"{url=}")
-                raw_data = requests.get(url, timeout=REQUEST_TIMEOUT)
+                # raw_data = requests.get(url, timeout=REQUEST_TIMEOUT)
+
+                data = loop.run_until_complete(bapi.getArea(
+                    pos[0], pos[1],
+                    radius=REQUEST_RADIUS,
+                    types=get_type
+                ))
 
                 # set conn state to working
-                conn_state.value |= CONN_STATE_NET
+                flags.value |= CONN_STATE_NET
+                break
 
             except requests.exceptions.Timeout:
                 comm.send("cam timeout")
 
                 # set network state to false
-                conn_state.value &= ~CONN_STATE_NET
+                flags.value &= ~CONN_STATE_NET
 
                 # wait for 10 secs to not spam the api
                 sleep(10)
                 continue
 
-            try:
-                data = raw_data.json()
+            except Exception as e:
+                comm.send("cam error")
 
-            except JSONDecodeError:
-                comm.send("json error")
+                # set network state to false
+                flags.value &= ~CONN_STATE_NET
+
                 # wait for 10 secs to not spam the api
                 sleep(10)
                 continue
 
-            break
+            # try:
+            #     data = raw_data.json()
+            #
+            # except JSONDecodeError:
+            #     comm.send("json error")
+            #     # wait for 10 secs to not spam the api
+            #     sleep(10)
+            #     continue
+            #
+            # break
 
         comm.send("got cams")
-
-        # data = load(open("cam_data.json", "r"))
 
         # writing data, set lock
         radars = []
         # process cams
-        for cam in data["pois"]:
-            info = loads(cam["info"])
-
-            if not info:
-                info = {}
-
+        for cam in data:
             vmax = cam["vmax"] if "vmax" in cam else -1
+
             try:
                 vmax = int(vmax)
 
@@ -288,7 +310,7 @@ def start_data_source(
                 y=float(cam["lng"]),
                 type=int(cam["type"]),
                 vmax=vmax,
-                is_cluster="count_cluster" in info,
+                is_cluster=cam["type"] == 1000,
             ))
 
         # copy cams to memory
@@ -310,7 +332,7 @@ def start_data_source(
 
         n_cams.value = length
         set_cams_event.clear()
-        comm.send(f"cams took {perf_counter() - start} to copy, n: {length}")
+        comm.send(f"cams took {round(1000 * (perf_counter() - start), 3)}ms to copy, n: {length}")
         cams_updating = False
 
     def _update_roads() -> None:
@@ -396,7 +418,7 @@ def start_data_source(
                         vmax=vmax
                     ))
 
-            comm.send(f"roads took {perf_counter() - start} to process")
+            comm.send(f"roads took {round(perf_counter() - start, 3)}s to process")
 
             start = perf_counter()
             length = 0
@@ -412,7 +434,7 @@ def start_data_source(
 
             n_roads.value = length
             set_roads_event.clear()
-            comm.send(f"roads took {perf_counter() - start} to copy")
+            comm.send(f"roads took {round(perf_counter() - start, 3)}s to copy")
 
         except Exception as e:
             comm.send(e, "err")
@@ -433,11 +455,11 @@ def start_data_source(
                 f.write(f"{t},{packet.mode},,,,\n")
 
             # set GPS state to false
-            conn_state.value &= ~CONN_STATE_GPS
+            flags.value &= ~CONN_STATE_GPS
             return
 
         # set GPS state to true
-        conn_state.value |= CONN_STATE_GPS
+        flags.value |= CONN_STATE_GPS
 
         pos = packet.lat, packet.lon
 

@@ -1,0 +1,334 @@
+DOMAIN = "blitzer"
+
+# The two halves this integration reports, used wherever something needs to
+# be told apart by half: the coordinator's per-half bookkeeping, the entity
+# unique ids, the sensors' attributes. Spelled out here so that adding a
+# third one day is a matter of adding it here rather than hunting for the
+# places that hardcoded "cameras".
+HALF_CONTROLS = "controls"
+HALF_HAZARDS = "hazards"
+CONF_BLACKLIST = "blacklist"
+TYPE_MOBILE = [0,1,2,3,4,5,6]
+TYPE_TRAILER = ['ts']
+TYPE_FIXED = [101,102,103,104,105,106,107,108,109,110,111,112,113,115,117,114]
+
+# Codes of 200 and above were Blitzer.de's archive of removed cameras. The
+# rebuilt site no longer delivers that layer - a request for it answers with
+# nothing - so the integration no longer asks for it (v4.0.0).
+
+# Two combinations the type name on its own cannot express. A handheld
+# camera, one in a housing and one on a trailer all come back under the same
+# type code - "Geschwindigkeitsblitzer" for every one of them - because how a
+# control is set up is a separate axis to what it measures. The summary has
+# room for exactly one name, and there saying which of the three it is
+# carries more than repeating what every speed camera already is. The wording
+# is ours: the map's own language files have none for it, since nothing on
+# blitzer.de ever combines the two axes into a single label.
+FORM_KIND_LABELS = {
+    ("mobile", "speed"): {
+        "de": "Mobiler Geschwindigkeitsblitzer",
+        "en": "Mobile speedcamera",
+    },
+    ("trailer", "speed"): {
+        "de": "Anhängerblitzer",
+        "en": "Speedcamera trailer",
+    },
+}
+
+# Everything Blitzer.de reports that is not a speed camera. The codes and
+# their meanings come from the map's own language file
+# (https://map.blitzer.de/v5/js/lang_de.js, "txt_type_*"), not from guesswork:
+# several of them carry a "vmax" and would otherwise read like speed limits.
+#
+# Two are not numbers. "closure" is a road block, and "vwd" is a traffic
+# control centre report - the latter arrives in a different shape from
+# everything else here (no vmax, a fully written-out German traffic bulletin
+# in "reason"), which is why the hazard entity reads several fields for it.
+#
+# Requested in their own API call, never alongside the cameras: the endpoint
+# caps a response at ~500 entries, and permanent roadworks alone are numerous
+# enough to push cameras out of that budget - measured at 162 cameras alone
+# versus 101 once roadworks shared the request.
+CONF_HAZARDS = "hazards"
+HAZARD_TYPES = {
+    "tailback_end": "20",
+    "accident": "21",
+    "roadwork_temporary": "22",
+    "obstacle": "23",
+    "slippery": "24",
+    "obstructed_view": "25",
+    "roadwork_permanent": "26",
+    "broken_down_vehicle": "29",
+    "closure": "closure",
+    "police_report": "vwd",
+}
+# Off by default, every one of them: an existing entry must not start
+# reporting hundreds of roadworks because it was updated.
+HAZARD_DEFAULTS = {key: False for key in HAZARD_TYPES}
+HAZARD_ICONS = {
+    "tailback_end": "mdi:car-brake-alert",
+    "accident": "mdi:car-emergency",
+    "roadwork_temporary": "mdi:traffic-cone",
+    "obstacle": "mdi:alert-octagon",
+    "slippery": "mdi:car-traction-control",
+    "obstructed_view": "mdi:weather-fog",
+    "roadwork_permanent": "mdi:excavator",
+    "broken_down_vehicle": "mdi:car-wrench",
+    "closure": "mdi:boom-gate",
+    "police_report": "mdi:police-badge",
+}
+
+# The hazards' own counterparts to CONF_COUNT/CONF_SELECTOR/CONF_BLACKLIST.
+# Deliberately separate from the camera ones: a card showing 9 cameras has no
+# reason to also cap roadworks at 9, and an id blacklisted as a camera has
+# nothing to do with a hazard id.
+CONF_HAZARD_COUNT = "hazard_count"
+CONF_HAZARD_SELECTOR = "hazard_selector"
+CONF_HAZARD_BLACKLIST = "hazard_blacklist"
+# How many reports a new entry keeps per half. 20 since v4.0.0 (9 before):
+# an entry made earlier keeps the number stored with it.
+DEFAULT_COUNT = 20
+DEFAULT_HAZARD_COUNT = 20
+# Hazards poll on a schedule of their own, with the same meaning and the
+# same default as CONF_UPDATE_INTERVAL: minutes, 0 = only ever on demand.
+# Separate because the two age very differently - a jam is stale in a
+# minute, a permanent roadwork is still there next week - and because each
+# one costs its own request.
+CONF_HAZARD_UPDATE_INTERVAL = "hazard_update_interval"
+
+# Fired once per hazard that is newly reported for an entry, the same way
+# EVENT_NEW_CONTROL is (see geo_location.py's _sync_entities).
+EVENT_NEW_HAZARD = f"{DOMAIN}_new_hazard"
+
+# What Blitzer.de itself calls each code, in its own words, lifted from the
+# map's language files. Reported as the "type_name" attribute, because the
+# coarse category cannot carry it: a tunnel camera, a section control and a
+# weight check are all "fixed", and in the test data 98 of 127 cameras were.
+CODE_LABELS = {
+    0: {"de": "Unbekannt", "en": "Unknown"},
+    1: {"de": "Geschwindigkeitsblitzer", "en": "Speedcamera"},
+    2: {"de": "Ampelblitzer", "en": "Redlight control"},
+    3: {"de": "Gewichtskontrolle", "en": "Weight control"},
+    4: {"de": "Allg. Verkehrskontrolle", "en": "Spot check on traffic"},
+    5: {"de": "Alkoholkontrolle", "en": "Alcohol control"},
+    6: {"de": "Abstandskontrolle", "en": "Distance control"},
+    7: {"de": "Geschwindigkeitsblitzer", "en": "Speedcamera"},
+    11: {"de": "Ampelblitzer", "en": "Redlight control"},
+    12: {"de": "Section Control", "en": "Section Control"},
+    20: {"de": "Stauende", "en": "End of tailback"},
+    21: {"de": "Unfall", "en": "Accident"},
+    22: {"de": "Tagesbaustelle", "en": "Temporary roadwork"},
+    23: {"de": "Hindernis", "en": "Obstacle"},
+    24: {"de": "Rutschgefahr", "en": "Slipperiness"},
+    25: {"de": "Sichtbehinderung", "en": "Obstructed view"},
+    26: {"de": "Dauerbaustelle", "en": "Permanent roadworks"},
+    29: {"de": "Defektes Fahrzeug", "en": "Broken down vehicle"},
+    101: {"de": "Abstandskontrolle", "en": "Distance control"},
+    102: {"de": "Attrappe", "en": "Dummy"},
+    103: {"de": "Auffahrtskontrolle", "en": "Access control"},
+    104: {"de": "Spurkontrolle", "en": "Lane control"},
+    105: {"de": "Einfahrtskontrolle", "en": "Entrance control"},
+    106: {"de": "Fußgängerüberweg", "en": "Pedestrian crosswalk"},
+    107: {"de": "Geschwindigkeitsblitzer", "en": "Speedcamera"},
+    108: {"de": "Gewichtskontrolle", "en": "Weight control"},
+    109: {"de": "Höhenkontrolle", "en": "Height control"},
+    110: {"de": "Ampel- & Geschwindigkeitsblitzer", "en": "Redlight & speed control"},
+    111: {"de": "Ampelblitzer", "en": "Redlight control"},
+    112: {"de": "Abschnittskontrolle", "en": "Section Control Start"},
+    113: {"de": "Abschnittskontrolle Ende", "en": "Section Control End"},
+    114: {"de": "Blitzer im Tunnel", "en": "Speedcam inside tunnel"},
+    115: {"de": "Überholverbot", "en": "Overtaking ban"},
+    117: {"de": "Stationäre Polizeikontrolle", "en": "Stationary Police Check"},
+    "closure": {"de": "Sperrung", "en": "Road block"},
+    "vwd": {"de": "Polizeimeldung", "en": "Police reports"},
+}
+
+# The control kinds, i.e. what is actually being measured. This is the axis
+# the type section switches on; "type" (mobile / trailer / fixed)
+# is the other one, how the thing is installed, and the two combine with AND.
+#
+# Several codes mean the same control: 1, 7 and 107 are all a speed
+# camera, on a tripod or in a housing. Grouping them here
+# means a switch says what it does rather than naming a number.
+CONF_KINDS = "kinds"
+CONTROL_KINDS = {
+    "speed": ["1", "7", "107"],
+    "redlight": ["2", "11", "111"],
+    "redlight_speed": ["110"],
+    "section_control": ["12", "112", "113"],
+    "tunnel": ["114"],
+    "distance": ["6", "101"],
+    "weight": ["3", "108"],
+    "height": ["109"],
+    "lane": ["104"],
+    "entry": ["105"],
+    "access": ["103"],
+    "crosswalk": ["106"],
+    "overtaking": ["115"],
+    "police": ["4", "117"],
+    "alcohol": ["5"],
+    "dummy": ["102"],
+    "unknown": ["0"],
+}
+# On by default, all of them: switching the axis on shouldn't be what makes
+# an existing entry report less than it did.
+KIND_DEFAULTS = {key: True for key in CONTROL_KINDS}
+# The same table read the other way, for deciding what an arriving item is.
+CODE_KIND = {
+    code: kind for kind, codes in CONTROL_KINDS.items() for code in codes
+}
+
+# The installation form, the other axis. "redlight" used to live here too,
+# which was the mistake this splits up: it answers what is measured, not how
+# the camera is mounted, and it is now one of the control kinds above.
+# "archive" used to be a fourth form; an entry that still carries the key
+# is read for the three that remain and the key is ignored (v4.0.0).
+TYPE_FORMS = ["mobile", "trailer", "fixed"]
+FORM_DEFAULTS = {"mobile": True, "trailer": True, "fixed": False}
+
+CONF_SEARCH_MODE = "search_mode"
+SEARCH_MODE_AREA = "area"
+SEARCH_MODE_ROUTE = "route"
+CONF_WAYPOINTS = "waypoints"
+CONF_CORRIDOR_WIDTH = "corridor_width"
+DEFAULT_CORRIDOR_WIDTH = 300
+
+# The third search mode: a radius like the area's, but around wherever a
+# device tracker currently is rather than around a fixed point. Same fields
+# and same behaviour as the area otherwise - only the centre moves.
+#
+# Device trackers only, and only those actually reporting coordinates - see
+# tracker_position() below, which is the test both the config flow's picker
+# and the search apply.
+SEARCH_MODE_TRACKER = "tracker"
+CONF_TRACKER = "tracker"
+CONF_TRACKER_RADIUS = "tracker_radius"
+# The same 1000m the area's map hands out for a fresh entry, so the two modes
+# start from the same circle.
+DEFAULT_TRACKER_RADIUS = 1000
+
+# The fourth search mode: a corridor along a route worked out by
+# openrouteservice from a start, a destination and optional via points,
+# instead of along straight lines between hand-placed waypoints. The route is
+# stored with the entry as a thinned-out list of points under CONF_WAYPOINTS,
+# so everything that searches and measures along a waypoint route does the
+# same along this one.
+#
+# Each end is a zone, a point on the map or an address; the kind is stored
+# with it, so that editing the entry offers the same kind again.
+SEARCH_MODE_ROUTE_ORS = "route_ors"
+ROUTE_MODES = (SEARCH_MODE_ROUTE, SEARCH_MODE_ROUTE_ORS)
+CONF_ORS_API_KEY = "ors_api_key"
+CONF_ORS_SAVE_KEY = "ors_save_key"
+CONF_ORS_START = "ors_start"
+CONF_ORS_DESTINATION = "ors_destination"
+# The switch on a new route's last screen that makes the way back as a
+# second entry. A form field only - never stored.
+CONF_ORS_RETURN_ROUTE = "ors_return_route"
+# The way back's own name, on the form that creates both entries. A form
+# field only; the return entry stores it as its CONF_NAME.
+CONF_ORS_RETURN_NAME = "ors_return_name"
+CONF_ORS_VIAS = "ors_vias"
+CONF_ROUTE_DISTANCE = "route_distance"
+CONF_ROUTE_DURATION = "route_duration"
+# Where a key comes from. In the code rather than in the sentence that
+# tells someone to go there: a translated string may not carry a URL, and
+# an address that changes should change in one place either way.
+ORS_SIGNUP_URL = "https://openrouteservice.org/"
+ORS_KIND_ZONE = "zone"
+ORS_KIND_POINT = "point"
+ORS_KIND_ADDRESS = "address"
+# openrouteservice takes up to 50 points per request; far fewer vias than
+# that are needed to pin a commute to the road it actually takes.
+MAX_ORS_VIAS = 20
+
+# Which service works a start/destination route out. openrouteservice once,
+# when the route is set up - the default, and what every entry from before
+# the choice has - or TomTom on every poll, with the traffic of the moment:
+# the route the traffic makes fastest right now, its travel time, and how
+# much of that is delay. Each service has a key of its own.
+CONF_ROUTE_SERVICE = "route_service"
+ROUTE_SERVICE_ORS = "ors"
+ROUTE_SERVICE_TOMTOM = "tomtom"
+CONF_TOMTOM_API_KEY = "tomtom_api_key"
+TOMTOM_SIGNUP_URL = "https://developer.tomtom.com/"
+# When a live route is kept up to date: the weekdays, and the time of day
+# from one to the other. Outside those hours the entry does not poll at all
+# - neither TomTom nor Blitzer.de - until a refresh action asks; a commute
+# needs no requests at night. No day ticked, or the same time on both
+# ends, means always.
+CONF_LIVE_DAYS = "live_days"
+CONF_LIVE_FROM = "live_from"
+CONF_LIVE_UNTIL = "live_until"
+LIVE_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+# The way back's own hours, on the form that creates both entries - it is
+# driven at another time of day. Form fields only; the return entry stores
+# them as its CONF_LIVE_FROM / CONF_LIVE_UNTIL.
+CONF_LIVE_BACK_FROM = "live_back_from"
+CONF_LIVE_BACK_UNTIL = "live_back_until"
+# Fired when a live route's fastest way becomes a different one - after
+# the first route of a run, which is only ever the start of knowing.
+EVENT_ROUTE_CHANGED = f"{DOMAIN}_route_changed"
+# Under hass.data[DOMAIN]: the entry whose sensors carry the month's TomTom
+# total. One sensor for all entries, so one entry has to carry it - the
+# first TomTom entry to set up, and the next one up once it is gone.
+TOMTOM_TOTAL_OWNER = "tomtom_total_owner"
+
+# How far from the route line a report may lie and still count as on the
+# route. The boxes a route is searched in are hundreds of metres wide and
+# catch every parallel street; this keeps the road itself. 60 m covers a
+# wide road, a report placed by a phone's GPS and the 10 m the stored route
+# was thinned out by, and on the first real route there was nothing between
+# 80 m and 290 m to be unsure about. Bounded at 300 m: the search boxes grow
+# with the tolerance where they must (coordinator._search_radius), and past a
+# few hundred metres this is no longer "on the route" but a corridor, which
+# the waypoint route already is.
+CONF_ROUTE_TOLERANCE = "route_tolerance"
+DEFAULT_ROUTE_TOLERANCE = 60
+MIN_ROUTE_TOLERANCE = 10
+MAX_ROUTE_TOLERANCE = 300
+
+# How often this entry polls Blitzer.de, in minutes. User-configurable per
+# entry - 0 means "never automatically", relying entirely on the "refresh"
+# service instead (e.g. triggered from an automation). The default is an
+# hour: it only ever applies to an entry being created (an existing one
+# keeps the value stored with it), and a new entry should start cheap -
+# Blitzer.de blocks an address that asks too often, and a route of a few
+# dozen points polled every minute was measured to get there within hours.
+CONF_UPDATE_INTERVAL = "update_interval"
+DEFAULT_UPDATE_INTERVAL = 60
+UPDATE_INTERVAL_MANUAL = 0
+
+# How long a report counts as new, in minutes - one window per half, for
+# the same reason the counts and the polling intervals are split in two: a
+# mobile camera set up this morning is still news hours later, while a
+# tailback reported half an hour ago has usually cleared. 0 switches the
+# "new" count off for that half rather than reporting a permanent zero.
+#
+# Answered per entry rather than per card, and this is the only place it is
+# answered. Every card of an area reads it back off that area's sensors, so
+# a dashboard's visibility condition, an automation, a template and three
+# cards side by side cannot disagree about what "new" means. Settable in
+# the entry's options and, more directly, on the area's own device page -
+# see number.py.
+CONF_NEW_MINUTES = "new_minutes"
+CONF_HAZARD_NEW_MINUTES = "hazard_new_minutes"
+DEFAULT_NEW_MINUTES = 60
+
+# One action per half, named after its half. Two rather than one with a
+# parameter, so that each polls exactly what it says: an automation
+# refreshing controls for a commute should not spend a request on roadworks,
+# and neither should the reverse.
+SERVICE_REFRESH_CONTROLS = "refresh_controls"
+SERVICE_REFRESH_HAZARDS = "refresh_hazards"
+# Both halves in one go - and, for a route, in one pass over its points
+# (see coordinator._fetch_route_combined), where the two above would each
+# make a pass of their own.
+SERVICE_REFRESH = "refresh"
+ATTR_CONFIG_ENTRY_ID = "config_entry_id"
+
+# Fired once per control that's newly reported for an entry - never for one
+# already known from an earlier poll, and never during the very first sync
+# right after setup (those are just "already there", not newly detected).
+# See geo_location.py's _sync_entities.
+EVENT_NEW_CONTROL = f"{DOMAIN}_new_control"
