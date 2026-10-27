@@ -25,13 +25,29 @@ import pygame as pg
 import numpy as np
 import math as m
 import mmap
-import cv2
 
 
 class Renderer:
+    """
+    Emulate the OLED display using pygame (for testing)
+
+    :cvar _width: OLED width
+    :cvar _height: OLED height
+    :cvar _bpp: bits per pixel for binary file
+    :cvar _device_path: binary file path
+
+    :ivar __fb: direct binary file IO
+    :ivar _mem: memory view to binary file
+    :ivar _fb16: numpy representation of memory view
+    :ivar _window: pygame window
+    :ivar _clock: pygame clock
+    :ivar _texture: re-used texture ID image
+    :ivar running: renderer state
+    """
+
     _width: int = 240
     _height: int = 240
-    _bpp: int = 16  # bytes per pixel
+    _bpp: int = 16  # bits per pixel
     _device_path: str = "./disp_fb.bin"
 
     def __init__(self):
@@ -42,12 +58,6 @@ class Renderer:
         # create memory view
         self._mem = mmap.mmap(self.__fb.fileno(), fb_size)
         self._fb16 = np.frombuffer(self._mem, dtype=np.uint16)
-
-        # img = np.frombuffer(self._fb16, dtype=np.uint16)
-        # img = img.reshape(240, 240)
-        # cv2.imshow("img", img)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
 
         # initialize OpenGL
         pg.init()
@@ -83,7 +93,7 @@ class Renderer:
         glTexImage2D(
             GL_TEXTURE_2D,
             0,
-            GL_RGB,  # internal format
+            GL_RGB,
             self._width,
             self._height,
             0,
@@ -94,6 +104,10 @@ class Renderer:
         self.running = True
 
     def draw_from_buffer(self) -> None:
+        """
+        draws current frame as image from binary file buffer
+        """
+        # draw textured quad
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, self._texture)
 
@@ -128,7 +142,8 @@ class Renderer:
 
     def start_display_border(self) -> None:
         """
-        draws the circle where the display would be
+        applies a circular stencil that emulates
+        the OLED's shape.
         """
         # start stencil
         glEnable(GL_STENCIL_TEST)
@@ -156,35 +171,37 @@ class Renderer:
         glStencilMask(0x00)
         glStencilFunc(GL_EQUAL, 1, 0xFF)
 
-    def end_display_border(self) -> None:
+    @staticmethod
+    def end_display_border() -> None:
         """
-        draws the circle where the display would be
+        Disables the stencil
         """
         glDisable(GL_STENCIL_TEST)
         glStencilMask(0xFF)
         glStencilFunc(GL_ALWAYS, 0, 0xFF)
 
+    @staticmethod
     def draw_circle(
-        self,
-        center: tuple(int, int),
+        center: tuple[int, int],
         radius: float,
         num_segments: int,
     ) -> None:
         """
-        Draw a circle with fil
+        Draw a circle with fill (from github.com/nilusink/amoginarium)
+
         :param center: Absolute center position
         :param radius: Radius of the circle in pixels
         :param num_segments: Number of segments
-        :param color: Drawing color
-        :param convert_global: Whether to apply the global game scaling to pos and size
-        :param offscreen_check: Whether to check it the element is on the window before drawing (rect check).
         """
+        # create coords matrix
         glPushMatrix()
+
+        # move matrix to center of circle
         glTranslate(center[0], center[1], 0.0)
         glColor3f(1, 1, 1)
 
+        # start drawing the circle
         glBegin(GL_POLYGON)
-
 
         step = m.tau / num_segments
         [
@@ -192,10 +209,15 @@ class Renderer:
             for i in range(num_segments)
         ]
 
+        # finish drawing & close matrix
         glEnd()
         glPopMatrix()
 
     def draw_frame(self) -> None:
+        """
+        Draws display frame
+        """
+        # draw current buffer
         self._window.flip()
 
         # update pygame
@@ -203,36 +225,50 @@ class Renderer:
             if event.type == pg.QUIT:
                 self.running = False
 
+        # emulate slow I2C OLED
         self._clock.tick(3)
 
+        # clear screen
         glClear(GL_COLOR_BUFFER_BIT)
         glClearColor(.1, .1, .1, 1)  # red
 
     def quit(self) -> None:
+        """
+        close buffer & pygame
+        """
         self.__fb.close()
         pg.quit()
 
+        # make sure runnign is set to false
+        self.running = False
+
 
 def main() -> None:
+    # create renderer instance
     renderer = Renderer()
 
     try:
+        # mainloop
         while True:
+            # draw displayed image in stencil
             renderer.start_display_border()
             renderer.draw_from_buffer()
             renderer.end_display_border()
 
+            # update screen & pygame
             renderer.draw_frame()
 
+            # quit if renderer asks for it
             if not renderer.running:
                 break
 
+    # user interrupt
     except KeyboardInterrupt:
         pass
 
     print("Closing")
-
     renderer.quit()
+
 
 if __name__ == "__main__":
     main()
