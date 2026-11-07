@@ -13,7 +13,7 @@ from data_source import start_data_source
 from display_driver import DisplayDriver
 
 
-EMULATE_DISPLAY: bool = True
+EMULATE_DISPLAY: bool = False
 MAP_INTERVAL: float = 2
 DOT_SIZE: int = 10
 BUFFER_SIZE_FAC = 1.5

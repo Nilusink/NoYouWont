@@ -27,8 +27,8 @@ import os
 os.environ["OGR_INTERLEAVED_READING"] = "YES"
 
 # select GPS provider
-# import gpsd
-from dummy_gpsd import gpsd
+import gpsd
+# from dummy_gpsd import gpsd
 
 
 from hud_lib import road_t, speedcam_t, MAX_ROADS, MAX_CAMS, REQUEST_RADIUS, \
@@ -522,9 +522,11 @@ def start_data_source(
         dist = m.sqrt(
             now_pos[0]*now_pos[0] + now_pos[1]*now_pos[1]
         )
+
+        # request 25% before running out of road (11 250 for 15km)
         if (
             not roads_updating
-            and dist >= ROADS_REQUEST_RADIUS
+            and dist >= ROADS_REQUEST_RADIUS * 0.75
         ):
             pool.submit(_update_roads)
             last_update_pos[0] = pos[0]
